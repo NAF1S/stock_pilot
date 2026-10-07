@@ -1,0 +1,49 @@
+# Dependencies
+vendor/
+node_modules/
+portal/vendor/
+portal/node_modules/
+
+# Frontend build output (rebuild via npm run build)
+portal/public/build/
+portal/public/hot
+portal/public/storage
+
+# Environment & Secrets
+.env
+.env.*
+portal/.env
+portal/.env.backup
+portal/.env.production
+portal/.env.*.local
+!.env.example
+!portal/.env.example
+
+# Laravel caches / logs
+*.log
+portal/storage/*.log
+portal/storage/logs/*
+!portal/storage/logs/.gitkeep
+portal/storage/framework/cache/data/*
+portal/storage/framework/sessions/*
+portal/storage/framework/views/*
+portal/storage/framework/testing/*
+!portal/storage/framework/.gitkeep
+portal/bootstrap/cache/*.php
+!portal/bootstrap/cache/.gitkeep
+portal/database/*.sqlite
+portal/database/*.sqlite-journal
+portal/storage/app/private/*
+!portal/storage/app/private/.gitkeep
+portal/storage/*.key
+
+# IDE / OS / Tooling
+.idea/
+.vscode/
+*.swp
+.DS_Store
+.playwright-mcp/
+.claude/
+
+# Archives & build artifacts
+*.zip

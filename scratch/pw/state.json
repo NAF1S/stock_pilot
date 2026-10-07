@@ -1,0 +1,25 @@
+{
+  "cookies": [
+    {
+      "name": "XSRF-TOKEN",
+      "value": "eyJpdiI6IkZLQUlyOUMyU3dWL0JUUThCckhrVmc9PSIsInZhbHVlIjoicjNkNGpDSHFzMnBoVkZQa25MTytoZ1Z4STdydSs1Q1RJY2MxSnRZaEtUN0tRMHFUenEvWFk0ZldndnpiN2w5UEFaK2hrQkF5ZkVQdHYyaUtZZnFpZ3ZwZ2Z3WUtJbi8vdkFhT2VFaHF6UEhERnlKNERhL3VobUFTOGZINSs1ckgiLCJtYWMiOiJkZWE5YWJiOThlNWQ5MWMzN2M1N2MxNmVlM2Y4ZjM5MjkwODA3YjdhNjQ0ZTQyMWMyNGMzMTAxNzZkYzIyNGM2IiwidGFnIjoiIn0%3D",
+      "domain": ".apigateway.live",
+      "path": "/",
+      "expires": 1786138643.03497,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "stockpilot-session",
+      "value": "eyJpdiI6Ii8xdVl4NytKL25oRHhlK0NhVDUraUE9PSIsInZhbHVlIjoiNGF0WTRQYW9BL2lkUW5ZYkZ6QUdpTmcvdWtJaFl0d2l3REU3R1g5REhJMXk5cDBkeGxFbFFPRFRiV05pVjliakRzZ0Y0a2loaHcwVFNETnZYMUZLeU1VRkl0ZlNYaGUrQm5LaWVMamJUK0pYT3grYURVeU1PZ3VCWGlNaVJlVTMiLCJtYWMiOiI4OWI3NjQxMzg2Y2U4YzFjNDQ2YjdhNDc1ZWM1ZjI3OWQ4Y2E0OGI2NzA1Njk5NTdlYzE5MzIxMDU4MWJlYjkxIiwidGFnIjoiIn0%3D",
+      "domain": ".apigateway.live",
+      "path": "/",
+      "expires": 1786138643.035062,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}
