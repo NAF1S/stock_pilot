@@ -23,7 +23,7 @@ class UserController extends Controller
     {
         $data = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email',
+            'email' => 'required|email|unique:sp_users,email',
             'password' => 'required|string|min:8',
             'role' => 'required|in:admin,manager,staff',
         ]);
@@ -46,7 +46,7 @@ class UserController extends Controller
 
         $data = $request->validate([
             'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email',
+            'email' => ['sometimes', 'email', \Illuminate\Validation\Rule::unique('sp_users', 'email')->ignore($user->id)],
             'password' => 'sometimes|string|min:8',
         ]);
 
@@ -83,15 +83,22 @@ class UserController extends Controller
         return response()->json(['user' => $this->payload($user)]);
     }
 
-    public function activate(User $user): JsonResponse
+    public function activate(Request $request, User $user): JsonResponse
     {
+        $this->assertSameOrg($request, $user);
         $user->update(['is_active' => true]);
 
         return response()->json(['ok' => true]);
     }
 
-    public function deactivate(User $user): JsonResponse
+    public function deactivate(Request $request, User $user): JsonResponse
     {
+        $this->assertSameOrg($request, $user);
+
+        if ($user->id === $request->user()->id) {
+            return response()->json(['error' => 'You cannot deactivate your own account.'], 422);
+        }
+
         $user->update(['is_active' => false]);
 
         return response()->json(['ok' => true]);

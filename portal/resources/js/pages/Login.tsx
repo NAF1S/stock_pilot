@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { errMsg } from '../lib/api';
 import { Button, Card, Flash, Input } from '../components/ui';
@@ -46,6 +46,13 @@ export default function Login() {
                         <Button type="submit" className="w-full" loading={loading}>
                             Sign in
                         </Button>
+
+                        <div className="pt-2 text-center text-xs text-gray-500">
+                            Don&apos;t have an account?{' '}
+                            <Link to="/register" className="font-semibold text-indigo-600 hover:text-indigo-800">
+                                Register your shop
+                            </Link>
+                        </div>
                     </form>
                 </Card>
             </div>

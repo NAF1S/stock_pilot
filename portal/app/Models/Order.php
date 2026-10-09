@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -36,6 +37,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class Order extends \Illuminate\Database\Eloquent\Model
 {
+    use BelongsToOrganization;
+
     protected $table = 'sp_orders';
 
     /** @var array<string, mixed> */

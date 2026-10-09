@@ -32,6 +32,7 @@ Route::prefix('setup')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function () {
+    Route::post('register', [AuthController::class, 'register']);
     Route::post('login', [AuthController::class, 'login']);
     Route::post('forgot', [AuthController::class, 'sendResetLink']);
     Route::get('me', [AuthController::class, 'me'])->middleware('auth:sanctum');
@@ -122,7 +123,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('{order}', [OrderController::class, 'destroy'])->middleware('role:admin');
     });
 
-    // Activity ledger — every movement for items & products
+    // Activity ledger & movement analytics — every movement for items & products
+    Route::get('movements/analytics', [MovementController::class, 'analytics']);
     Route::get('movements', [MovementController::class, 'index']);
 
     // Reports

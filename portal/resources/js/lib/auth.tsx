@@ -17,10 +17,20 @@ export interface AuthUser {
     organization?: OrgInfo;
 }
 
+export interface RegisterData {
+    name: string;
+    email: string;
+    password: string;
+    organization_name: string;
+    currency?: string;
+    timezone?: string;
+}
+
 interface AuthContextValue {
     user: AuthUser | null;
     loading: boolean;
     login: (email: string, password: string) => Promise<void>;
+    register: (data: RegisterData) => Promise<void>;
     logout: () => Promise<void>;
     refresh: () => Promise<void>;
 }
@@ -53,13 +63,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(me);
     }, []);
 
+    const register = useCallback(async (data: RegisterData) => {
+        await getCsrfCookie();
+        const { user: me } = await apiPost<{ user: AuthUser }>('/auth/register', data);
+        setUser(me);
+    }, []);
+
     const logout = useCallback(async () => {
         await apiPost('/auth/logout');
         setUser(null);
     }, []);
 
     return (
-        <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+        <AuthContext.Provider value={{ user, loading, login, register, logout, refresh }}>
             {children}
         </AuthContext.Provider>
     );

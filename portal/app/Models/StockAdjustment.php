@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable(['organization_id', 'item_id', 'adjustment_type', 'quantity', 'reason', 'created_by'])]
 class StockAdjustment extends \Illuminate\Database\Eloquent\Model
 {
+    use BelongsToOrganization;
+
     protected $table = 'sp_stock_adjustments';
 
     protected function casts(): array

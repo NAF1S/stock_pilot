@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -19,6 +20,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class StockWarning extends \Illuminate\Database\Eloquent\Model
 {
+    use BelongsToOrganization;
+
     public const CREATED_AT = 'triggered_at';
 
     public const UPDATED_AT = null;

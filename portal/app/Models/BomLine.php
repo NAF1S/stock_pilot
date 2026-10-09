@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable(['organization_id', 'product_id', 'item_id', 'component_product_id', 'component_type', 'quantity'])]
 class BomLine extends \Illuminate\Database\Eloquent\Model
 {
+    use BelongsToOrganization;
+
     protected $table = 'sp_bom_lines';
 
     protected function casts(): array

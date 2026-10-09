@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -24,6 +25,8 @@ use Illuminate\Support\Facades\Crypt;
 ])]
 class StoreConnection extends \Illuminate\Database\Eloquent\Model
 {
+    use BelongsToOrganization;
+
     protected $table = 'sp_store_connections';
 
     protected function casts(): array

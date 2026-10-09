@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -23,6 +24,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class ItemMovement extends \Illuminate\Database\Eloquent\Model
 {
+    use BelongsToOrganization;
+
     public const UPDATED_AT = null;
 
     protected $table = 'sp_item_movements';

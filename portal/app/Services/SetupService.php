@@ -10,13 +10,12 @@ use Illuminate\Support\Facades\Schema;
 
 class SetupService
 {
-    /** Has the app been installed (tables + admin account)? */
+    /** Has the app database been installed (tables created)? */
     public function isSetup(): bool
     {
         try {
             return Schema::hasTable('sp_organizations')
-                && Schema::hasTable('sp_users')
-                && User::exists();
+                && Schema::hasTable('sp_users');
         } catch (\Throwable) {
             return false;
         }

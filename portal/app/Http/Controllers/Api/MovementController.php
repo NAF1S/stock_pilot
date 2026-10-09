@@ -18,6 +18,19 @@ use Illuminate\Http\Request;
  */
 class MovementController extends Controller
 {
+    public function analytics(Request $request, \App\Services\MovementAnalyticsService $analytics): JsonResponse
+    {
+        $orgId = $request->user()->organization_id;
+        $period = (string) $request->get('period', 'week');
+        $entity = (string) $request->get('entity', 'all');
+        $from = $request->get('from');
+        $to = $request->get('to');
+
+        $data = $analytics->getAnalytics($orgId, $period, $entity, $from, $to);
+
+        return response()->json($data);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $orgId = $request->user()->organization_id;

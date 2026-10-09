@@ -8,6 +8,7 @@ const nav = [
     { to: '/items', label: 'Items', icon: '📦' },
     { to: '/products', label: 'Products & Recipes', icon: '🧩' },
     { to: '/orders', label: 'Orders', icon: '🧾' },
+    { to: '/movements', label: 'Movements', icon: '📈' },
     { to: '/activity', label: 'Activity', icon: '📜' },
     { to: '/reports', label: 'Reports', icon: '📊' },
     { to: '/stores', label: 'Stores', icon: '🔌' },
@@ -42,7 +43,10 @@ export default function Layout() {
                     </button>
                     <div>
                         <div className="text-base font-bold leading-tight text-indigo-700">StockPilot</div>
-                        <div className="max-w-[150px] truncate text-xs text-gray-400">{user?.organization?.name}</div>
+                        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                            <span className="max-w-[130px] truncate font-medium">{user?.organization?.name || 'Workspace'}</span>
+                        </div>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -107,8 +111,11 @@ export default function Layout() {
             {/* Desktop Static Sidebar */}
             <aside className="hidden w-60 flex-col border-r border-gray-200 bg-white md:flex">
                 <div className="border-b border-gray-100 px-5 py-4">
-                    <div className="text-base font-bold text-indigo-700">StockPilot</div>
-                    <div className="text-xs text-gray-400">{user?.organization?.name}</div>
+                    <div className="text-lg font-bold text-indigo-700">StockPilot</div>
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-gray-500">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                        <span className="max-w-[170px] truncate font-medium text-gray-700">{user?.organization?.name || 'Workspace'}</span>
+                    </div>
                 </div>
                 <nav className="flex-1 space-y-0.5 p-3">
                     {navItems.map((item) => (

@@ -78,8 +78,12 @@ export function Select({
     label,
     className,
     children,
+    options,
     ...props
-}: React.SelectHTMLAttributes<HTMLSelectElement> & { label?: string }) {
+}: React.SelectHTMLAttributes<HTMLSelectElement> & {
+    label?: string;
+    options?: { value: string | number; label: string }[];
+}) {
     return (
         <label className="block">
             {label && <span className="mb-1 block text-xs font-medium text-gray-600">{label}</span>}
@@ -90,7 +94,13 @@ export function Select({
                     className,
                 )}
             >
-                {children}
+                {options
+                    ? options.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                          </option>
+                      ))
+                    : children}
             </select>
         </label>
     );

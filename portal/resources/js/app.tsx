@@ -9,10 +9,12 @@ import Layout from './components/Layout';
 import { FullPageSpinner } from './components/ui';
 import Setup from './pages/Setup';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Items from './pages/Items';
 import Products from './pages/Products';
 import Orders from './pages/Orders';
+import MovementAnalytics from './pages/MovementAnalytics';
 import Activity from './pages/Activity';
 import Reports from './pages/Reports';
 import Stores from './pages/Stores';
@@ -34,11 +36,13 @@ function AppRoutes() {
     return (
         <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
             <Route element={<Protected />}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/items" element={<Items />} />
                 <Route path="/products" element={<Products />} />
                 <Route path="/orders" element={<Orders />} />
+                <Route path="/movements" element={<MovementAnalytics />} />
                 <Route path="/activity" element={<Activity />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/stores" element={<Stores />} />
