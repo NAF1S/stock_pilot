@@ -3,26 +3,53 @@
 # Build portal-upload.zip — a self-contained bundle for deploying the StockPilot
 # portal to a remote or shared hosting server.
 #
-# It creates a clean staging copy, installs production composer dependencies,
-# sets up the storage skeleton, cleans dev state, and generates portal-upload.zip.
-#
 # Usage:
 #   ./scripts/build-portal-upload.sh              # Builds frontend (npm run build) and packages zip
 #   ./scripts/build-portal-upload.sh --skip-build # Reuses existing public/build without rebuilding frontend
 #
-# Optional environment overrides:
-#   COMPOSER_BIN="composer" ./scripts/build-portal-upload.sh
-#   SKIP_BUILD=1            ./scripts/build-portal-upload.sh
-#
 set -euo pipefail
+
+# Ensure standard system binary search paths are present
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORTAL="$ROOT/portal"
 OUT="$ROOT/portal-upload.zip"
 
-COMPOSER_BIN="${COMPOSER_BIN:-composer}"
-SKIP_BUILD="${SKIP_BUILD:-0}"
+# Auto-detect PHP binary
+PHP_BIN="${PHP_BIN:-}"
+if [ -z "$PHP_BIN" ]; then
+    for candidate in php php85 php84 php83; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            PHP_BIN="$(command -v "$candidate")"
+            break
+        fi
+    done
+fi
+PHP_BIN="${PHP_BIN:-php}"
 
+# Auto-detect Composer binary
+COMPOSER_BIN="${COMPOSER_BIN:-}"
+if [ -z "$COMPOSER_BIN" ]; then
+    for candidate in composer composer.phar; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            COMPOSER_BIN="$(command -v "$candidate")"
+            break
+        fi
+    done
+fi
+COMPOSER_BIN="${COMPOSER_BIN:-composer}"
+
+# Auto-detect NPM binary
+NPM_BIN="${NPM_BIN:-}"
+if [ -z "$NPM_BIN" ]; then
+    if command -v npm >/dev/null 2>&1; then
+        NPM_BIN="$(command -v npm)"
+    fi
+fi
+NPM_BIN="${NPM_BIN:-npm}"
+
+SKIP_BUILD="${SKIP_BUILD:-0}"
 if [ "${1:-}" = "--skip-build" ]; then
     SKIP_BUILD=1
 fi
@@ -35,8 +62,11 @@ trap cleanup EXIT
 echo "=========================================================="
 echo "  StockPilot Portal - Production Package Builder"
 echo "=========================================================="
-echo "  Source : $PORTAL"
-echo "  Output : $OUT"
+echo "  Source   : $PORTAL"
+echo "  Output   : $OUT"
+echo "  PHP      : $PHP_BIN ($("$PHP_BIN" -v 2>/dev/null | head -n1 || echo 'unknown'))"
+echo "  Composer : $COMPOSER_BIN"
+echo "  NPM      : $NPM_BIN"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -47,15 +77,15 @@ if [ "$SKIP_BUILD" = "1" ]; then
     echo "  -> Skipping frontend build (flag set)."
     if [ ! -f "$PORTAL/public/build/manifest.json" ]; then
         echo "  [WARNING] No manifest.json found at $PORTAL/public/build/manifest.json!"
-        echo "  Run 'npm run build' in portal/ first if assets are missing."
+        echo "  Run '$NPM_BIN run build' in portal/ first if assets are missing."
     else
         echo "  -> Reusing existing built assets in public/build/."
     fi
 else
-    echo "  -> Running npm run build in portal/..."
+    echo "  -> Running $NPM_BIN run build in portal/..."
     (
         cd "$PORTAL"
-        npm run build
+        "$NPM_BIN" run build
     )
     echo "  -> Frontend build completed."
 fi
@@ -107,12 +137,11 @@ touch "$STAGING/storage/app/public/.gitkeep" \
 echo ""
 echo "[4/5] Preparing production vendor dependencies & cleaning dev state..."
 
-# If composer exists, ensure staging vendor is optimized for production (--no-dev)
-if command -v composer >/dev/null 2>&1 || [ -n "$COMPOSER_BIN" ]; then
+if command -v "$COMPOSER_BIN" >/dev/null 2>&1; then
     echo "  -> Running composer install (--no-dev --optimize-autoloader)..."
     (
         cd "$STAGING"
-        $COMPOSER_BIN install --no-dev --no-interaction --no-progress --optimize-autoloader
+        "$COMPOSER_BIN" install --no-dev --no-interaction --no-progress --optimize-autoloader
     )
 fi
 
@@ -124,16 +153,71 @@ rm -f "$STAGING/storage/logs"/*.log
 find "$STAGING/storage/framework" -type f ! -name '.gitkeep' -delete
 rm -f "$STAGING/bootstrap/cache"/*.php
 
-# Pre-generate APP_KEY so remote host never needs 'php artisan key:generate' via terminal
-PROD_KEY="base64:getpW8JHqBFHrgD7YXKcZ4ynTj/+l7BxU32rdImDL+I="
-sed -i "s|^APP_KEY=.*|APP_KEY=$PROD_KEY|" "$STAGING/.env.example" 2>/dev/null || true
+# Pre-configure production .env
+PROD_KEY="base64:wM5npyDLFZDcF+SY7nuIIrtYk4EBS3hjdMlxHCN9ALE="
 
-# Provide a ready-to-edit production .env directly in the zip
-cp "$STAGING/.env.example" "$STAGING/.env"
-sed -i 's/^APP_ENV=.*/APP_ENV=production/' "$STAGING/.env" 2>/dev/null || true
-sed -i 's/^APP_DEBUG=.*/APP_DEBUG=false/' "$STAGING/.env" 2>/dev/null || true
-sed -i 's/^DB_CONNECTION=.*/DB_CONNECTION=mysql/' "$STAGING/.env" 2>/dev/null || true
-sed -i 's/^SP_WEBHOOK_MODE=.*/SP_WEBHOOK_MODE=sync/' "$STAGING/.env" 2>/dev/null || true
+cat <<EOF > "$STAGING/.env"
+APP_NAME=StockPilot
+APP_ENV=production
+APP_KEY=$PROD_KEY
+APP_DEBUG=false
+APP_URL=https://apigateway.live
+
+APP_LOCALE=en
+APP_FALLBACK_LOCALE=en
+APP_FAKER_LOCALE=en_US
+
+APP_MAINTENANCE_DRIVER=file
+
+BCRYPT_ROUNDS=12
+
+LOG_CHANNEL=stack
+LOG_STACK=single
+LOG_DEPRECATIONS_CHANNEL=null
+LOG_LEVEL=error
+
+# Supabase Managed PostgreSQL
+DB_CONNECTION=pgsql
+DB_HOST=aws-0-ap-southeast-1.pooler.supabase.com
+DB_PORT=5432
+DB_DATABASE=postgres
+DB_USERNAME=postgres.gpbutuibewyrfgcjhjqr
+DB_PASSWORD=prottoybainchod
+DB_SSLMODE=require
+
+# Sessions & Cookies
+SESSION_DRIVER=database
+SESSION_LIFETIME=120
+SESSION_ENCRYPT=false
+SESSION_PATH=/
+SESSION_DOMAIN=apigateway.live
+SESSION_SECURE_COOKIE=true
+
+# Queue & Cache
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+BROADCAST_CONNECTION=log
+FILESYSTEM_DISK=local
+
+# Sync webhook execution (no supervisor worker required on shared hosting)
+SP_WEBHOOK_MODE=sync
+
+# Sanctum SPA Auth
+SANCTUM_STATEFUL_DOMAINS=apigateway.live
+
+# Mail
+MAIL_MAILER=sendmail
+MAIL_SCHEME=null
+MAIL_HOST=127.0.0.1
+MAIL_PORT=2525
+MAIL_USERNAME=null
+MAIL_PASSWORD=null
+MAIL_FROM_ADDRESS="stockpilot@apigateway.live"
+MAIL_FROM_NAME="\${APP_NAME}"
+EOF
+
+# Copy production .env to .env.example inside archive as well
+cp "$STAGING/.env" "$STAGING/.env.example"
 
 # Normalize permissions for web server (directories 755, files 644)
 find "$STAGING" -type d -exec chmod 755 {} +
@@ -172,10 +256,9 @@ echo "  [SUCCESS] Portal package ready!"
 echo "  Location : $OUT"
 echo "  Size     : $SIZE"
 echo "=========================================================="
-echo "Deployment steps on remote host (Zero-terminal shared hosting):"
-echo "  1. Upload and extract '$OUT' on your hosting server."
-echo "  2. Point your web server / domain document root to: portal/public"
-echo "  3. Edit 'portal/.env' with your MySQL database credentials (APP_KEY is pre-configured)."
-echo "  4. Visit the site in your browser — tables auto-initialize and you can register immediately."
+echo "Deployment steps on remote host:"
+echo "  1. Upload and extract '$OUT' to your web root."
+echo "  2. Ensure your web server document root points to: portal/public"
+echo "  3. In cPanel -> Select PHP Version -> Extensions, ensure 'pdo_pgsql' is enabled."
+echo "  4. Visit https://apigateway.live — database is already live on Supabase!"
 echo ""
-

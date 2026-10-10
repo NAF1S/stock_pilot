@@ -9,6 +9,7 @@ const nav = [
     { to: '/products', label: 'Products & Recipes', icon: '🧩' },
     { to: '/orders', label: 'Orders', icon: '🧾' },
     { to: '/movements', label: 'Movements', icon: '📈' },
+    { to: '/forecasts', label: 'AI Forecasting', icon: '🔮' },
     { to: '/activity', label: 'Activity', icon: '📜' },
     { to: '/reports', label: 'Reports', icon: '📊' },
     { to: '/stores', label: 'Stores', icon: '🔌' },

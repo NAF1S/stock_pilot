@@ -20,6 +20,7 @@ import Reports from './pages/Reports';
 import Stores from './pages/Stores';
 import Settings from './pages/Settings';
 import Users from './pages/Users';
+import Forecasts from './pages/Forecasts';
 
 const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -43,6 +44,7 @@ function AppRoutes() {
                 <Route path="/products" element={<Products />} />
                 <Route path="/orders" element={<Orders />} />
                 <Route path="/movements" element={<MovementAnalytics />} />
+                <Route path="/forecasts" element={<Forecasts />} />
                 <Route path="/activity" element={<Activity />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/stores" element={<Stores />} />

@@ -47,3 +47,6 @@ portal/storage/*.key
 
 # Archives & build artifacts
 *.zip
+
+#Old database file
+hidehave_spdb.sql

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\ForecastController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\MovementController;
 use App\Http\Controllers\Api\OrderController;
@@ -152,5 +153,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/', [SettingController::class, 'show'])->middleware('role:manager,admin');
         Route::put('/', [SettingController::class, 'update'])->middleware('role:manager,admin');
         Route::post('test-email', [SettingController::class, 'testEmail'])->middleware('role:manager,admin');
+    });
+
+    // AI Forecasting & ML Predictive Intelligence
+    Route::prefix('forecasts')->group(function () {
+        Route::get('summary', [ForecastController::class, 'summary']);
+        Route::get('risks', [ForecastController::class, 'risks']);
+        Route::get('recommendations', [ForecastController::class, 'recommendations']);
+        Route::post('recommendations/{id}/action', [ForecastController::class, 'updateRecommendation'])->middleware('role:manager,admin');
+        Route::get('demand', [ForecastController::class, 'demand']);
     });
 });
