@@ -48,6 +48,12 @@ export default function Login() {
                         </Button>
 
                         <div className="pt-2 text-center text-xs text-gray-500">
+                            <Link to="/forgot-password" className="font-semibold text-indigo-600 hover:text-indigo-800">
+                                Forgot your password?
+                            </Link>
+                        </div>
+
+                        <div className="text-center text-xs text-gray-500">
                             Don&apos;t have an account?{' '}
                             <Link to="/register" className="font-semibold text-indigo-600 hover:text-indigo-800">
                                 Register your shop

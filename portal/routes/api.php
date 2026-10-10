@@ -35,7 +35,12 @@ Route::prefix('setup')->group(function () {
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'register']);
     Route::post('login', [AuthController::class, 'login']);
-    Route::post('forgot', [AuthController::class, 'sendResetLink']);
+
+    // Password reset — throttled per IP on top of the broker's own per-account
+    // 60s throttle, since both endpoints are unauthenticated.
+    Route::post('forgot', [AuthController::class, 'sendResetLink'])->middleware('throttle:6,1');
+    Route::post('reset', [AuthController::class, 'resetPassword'])->middleware('throttle:10,1');
+
     Route::get('me', [AuthController::class, 'me'])->middleware('auth:sanctum');
     Route::post('logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 });

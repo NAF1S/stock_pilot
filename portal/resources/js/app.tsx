@@ -10,6 +10,8 @@ import { FullPageSpinner } from './components/ui';
 import Setup from './pages/Setup';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Items from './pages/Items';
 import Products from './pages/Products';
@@ -38,6 +40,8 @@ function AppRoutes() {
         <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route element={<Protected />}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/items" element={<Items />} />
