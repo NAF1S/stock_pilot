@@ -28,4 +28,9 @@ class SettingService
             ->pluck('value', 'key')
             ->toArray();
     }
+
+    public function forget(int $organizationId, string $key): void
+    {
+        Setting::where('organization_id', $organizationId)->where('key', $key)->delete();
+    }
 }

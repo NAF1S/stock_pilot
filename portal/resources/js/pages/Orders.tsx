@@ -123,7 +123,11 @@ export default function Orders() {
     });
 
     const recompute = useMutation({
-        mutationFn: (apply: boolean) => apiPost(`/orders/${detail!.id}/recompute`, { apply }),
+        mutationFn: (apply: boolean) =>
+            apiPost<{ apply: boolean; drift_count: number; reconciliation_count: number }>(
+                `/orders/${detail!.id}/recompute`,
+                { apply },
+            ),
         onSuccess: (r: { apply: boolean; drift_count: number; reconciliation_count: number }) => {
             qc.invalidateQueries({ queryKey: ['orders'] });
             qc.invalidateQueries({ queryKey: ['dashboard'] });

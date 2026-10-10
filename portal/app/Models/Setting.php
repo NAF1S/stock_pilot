@@ -28,4 +28,18 @@ class Setting extends \Illuminate\Database\Eloquent\Model
     {
         return $this->belongsTo(Organization::class);
     }
+
+    /**
+     * Set the keys for a save / update / delete query on composite primary key.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    protected function setKeysForSaveQuery($query)
+    {
+        $query->where('organization_id', '=', $this->getAttribute('organization_id'))
+            ->where('key', '=', $this->getAttribute('key'));
+
+        return $query;
+    }
 }

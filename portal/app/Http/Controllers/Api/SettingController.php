@@ -46,7 +46,13 @@ class SettingController extends Controller
             'status_map' => 'sometimes|array',
         ]);
 
-        $org->fill($data)->save();
+        $orgFields = array_intersect_key($data, array_flip(['name', 'currency', 'timezone', 'low_stock_email']));
+        if (isset($orgFields['currency'])) {
+            $orgFields['currency'] = strtoupper($orgFields['currency']);
+        }
+        if (! empty($orgFields)) {
+            $org->fill($orgFields)->save();
+        }
 
         foreach (['allow_negative_stock', 'warning_cooldown_hours', 'status_map'] as $key) {
             if (array_key_exists($key, $data)) {
@@ -54,7 +60,16 @@ class SettingController extends Controller
             }
         }
 
-        return response()->json(['ok' => true, 'settings' => $this->settings->all($orgId)]);
+        return response()->json([
+            'ok' => true,
+            'organization' => [
+                'name' => $org->name,
+                'currency' => $org->currency,
+                'timezone' => $org->timezone,
+                'low_stock_email' => $org->low_stock_email,
+            ],
+            'settings' => $this->settings->all($orgId),
+        ]);
     }
 
     /** Send a test email to the configured low-stock address (synchronous). */

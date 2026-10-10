@@ -82,15 +82,25 @@ export default function Settings() {
         onSuccess: async () => {
             qc.invalidateQueries({ queryKey: ['settings'] });
             await refresh(); // update name/currency/timezone in the sidebar & dashboard
+            setError(null);
             setFlash('Settings saved.');
         },
-        onError: (e) => setError(errMsg(e)),
+        onError: (e) => {
+            setFlash(null);
+            setError(errMsg(e));
+        },
     });
 
     const testMail = useMutation({
         mutationFn: () => apiPost<{ sent_to: string }>('/settings/test-email'),
-        onSuccess: (r) => setFlash(`Test email sent to ${r.sent_to}. Check your inbox / spam.`),
-        onError: (e) => setError(errMsg(e)),
+        onSuccess: (r) => {
+            setError(null);
+            setFlash(`Test email sent to ${r.sent_to}. Check your inbox / spam.`);
+        },
+        onError: (e) => {
+            setFlash(null);
+            setError(errMsg(e));
+        },
     });
 
     if (isLoading || !data) return null;
