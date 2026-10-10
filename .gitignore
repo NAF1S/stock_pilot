@@ -50,3 +50,4 @@ portal/storage/*.key
 
 #Old database file
 hidehave_spdb.sql
+ec2 keys.pem

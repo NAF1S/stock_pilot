@@ -205,13 +205,14 @@ SP_WEBHOOK_MODE=sync
 # Sanctum SPA Auth
 SANCTUM_STATEFUL_DOMAINS=apigateway.live
 
-# Mail
-MAIL_MAILER=sendmail
+# Mail (Resend SMTP)
+MAIL_MAILER=smtp
 MAIL_SCHEME=null
-MAIL_HOST=127.0.0.1
-MAIL_PORT=2525
-MAIL_USERNAME=null
-MAIL_PASSWORD=null
+MAIL_HOST=smtp.resend.com
+MAIL_PORT=587
+MAIL_USERNAME=resend
+MAIL_PASSWORD=re_4xjzthFB_BBmgtbPnXH1YRufgyHqKo4my
+MAIL_ENCRYPTION=tls
 MAIL_FROM_ADDRESS="stockpilot@apigateway.live"
 MAIL_FROM_NAME="\${APP_NAME}"
 EOF
