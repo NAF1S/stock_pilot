@@ -401,4 +401,78 @@ class MovementAnalyticsTest extends TestCase
         $this->assertArrayHasKey('year', $data['movements']);
         $this->assertArrayHasKey('top_moving', $data['movements']);
     }
+
+    public function test_timeline_buckets_order_movements_by_ledger_occurred_at_not_confirmed_at(): void
+    {
+        [$org, $user] = $this->createTenant('Event Time Analytics');
+
+        $item = Item::create([
+            'organization_id' => $org->id,
+            'name' => 'Event Time Leather',
+            'sku' => 'ET-LTH',
+            'unit' => 'pcs',
+            'quantity_on_hand' => 100,
+        ]);
+
+        $eventDay = now()->subDays(10)->setTime(12, 0);
+        $processingDay = now()->setTime(18, 0);
+
+        $order = Order::create([
+            'organization_id' => $org->id,
+            'woocommerce_id' => 8010,
+            'woocommerce_number' => '8010',
+            'status' => 'completed',
+            'reservation_state' => 'confirmed',
+            'order_created_at' => now()->subDays(20),
+            'confirmed_at' => $processingDay, // historical processing-time stamp
+        ]);
+
+        $orderItem = OrderItem::create([
+            'order_id' => $order->id,
+            'woocommerce_item_id' => 9010,
+            'product_name' => 'Event Time Kit',
+            'quantity' => 1,
+        ]);
+
+        OrderItemComponent::create([
+            'organization_id' => $org->id,
+            'order_id' => $order->id,
+            'order_item_id' => $orderItem->id,
+            'item_id' => $item->id,
+            'quantity_per_unit' => 5,
+            'order_quantity' => 1,
+            'total_quantity' => 5,
+            'confirmed_quantity' => 5,
+            'status' => 'confirmed',
+            'confirmed_at' => $processingDay,
+        ]);
+
+        // The ledger knows when the stock actually moved.
+        ItemMovement::create([
+            'organization_id' => $org->id,
+            'item_id' => $item->id,
+            'movement_type' => 'confirm',
+            'qty_delta' => -5,
+            'reserved_delta' => 0,
+            'on_hand_after' => 95,
+            'reserved_after' => 0,
+            'ref_type' => 'order',
+            'ref_id' => $order->id,
+            'occurred_at' => $eventDay,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $from = now()->subDays(12)->toDateString();
+        $to = now()->toDateString();
+
+        $response = $this->getJson("/api/movements/analytics?period=custom&from={$from}&to={$to}");
+        $response->assertOk();
+
+        $timeline = collect($response->json('timeline'))->keyBy('date');
+
+        $this->assertArrayHasKey($eventDay->toDateString(), $timeline->all());
+        $this->assertEquals(5.0, (float) $timeline[$eventDay->toDateString()]['out_qty']);
+        $this->assertEquals(0.0, (float) $timeline[now()->toDateString()]['out_qty']);
+    }
 }

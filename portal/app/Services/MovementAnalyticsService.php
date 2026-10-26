@@ -242,14 +242,35 @@ class MovementAnalyticsService
      */
     private function getOrderMovements(int $orgId, Carbon $from, Carbon $to, ?string $entityScope): array
     {
+        // Include orders whose ledger movements fall inside the window even if
+        // their cached order timestamps still point at the processing time.
+        $movementOrderIds = ItemMovement::where('organization_id', $orgId)
+            ->where('ref_type', 'order')
+            ->whereRaw('COALESCE(occurred_at, created_at) BETWEEN ? AND ?', [$from, $to])
+            ->distinct()
+            ->pluck('ref_id');
+
         $orders = Order::where('organization_id', $orgId)
-            ->where(function ($q) use ($from, $to) {
+            ->where(function ($q) use ($from, $to, $movementOrderIds) {
                 $q->whereBetween('order_created_at', [$from, $to])
                   ->orWhereBetween('confirmed_at', [$from, $to])
                   ->orWhereBetween('updated_at', [$from, $to]);
+
+                if ($movementOrderIds->isNotEmpty()) {
+                    $q->orWhereIn('id', $movementOrderIds);
+                }
             })
             ->with(['items', 'items.components'])
             ->get();
+
+        $movementsByOrder = $orders->isEmpty()
+            ? collect()
+            : ItemMovement::where('organization_id', $orgId)
+                ->where('ref_type', 'order')
+                ->whereIn('ref_id', $orders->pluck('id'))
+                ->whereNotNull('occurred_at')
+                ->get(['ref_id', 'movement_type', 'occurred_at'])
+                ->groupBy('ref_id');
 
         $totalConfirmed = 0.0;
         $totalReserved = 0.0;
@@ -269,11 +290,24 @@ class MovementAnalyticsService
             $isReleased = in_array($orderStatus, ['cancelled', 'failed', 'trash'], true) || $resState === 'released';
             $isReserved = in_array($orderStatus, ['processing', 'pending', 'on-hold'], true) && ($resState === 'reserved' || $resState === 'partial');
 
-            // Order effective date
-            $orderDate = $order->confirmed_at ?? $order->order_created_at ?? $order->created_at;
-            $hourKey = $orderDate->format('Y-m-d H:00:00');
-            $dateKey = $orderDate->format('Y-m-d');
-            $monthKey = $orderDate->format('Y-m');
+            // Bucket each action by its own ledger event time. Historical order
+            // timestamps (confirmed_at etc.) were stamped at processing time, so
+            // they must not decide where the movement lands.
+            $orderMovements = $movementsByOrder->get($order->id, collect());
+            $placedAt = $order->order_created_at ?? $order->created_at;
+
+            $confirmedDate = $orderMovements->where('movement_type', 'confirm')
+                ->pluck('occurred_at')->filter()->min()
+                ?? $order->confirmed_at
+                ?? $placedAt;
+
+            $returnedDate = $orderMovements->where('movement_type', 'return')
+                ->pluck('occurred_at')->filter()->min()
+                ?? $order->returned_at
+                ?? $confirmedDate;
+
+            $confirmedKeys = $this->bucketKeys($confirmedDate);
+            $returnedKeys = $this->bucketKeys($returnedDate);
 
             // 1. Process Finished Products from Order Items
             if ($entityScope !== 'item') {
@@ -299,11 +333,11 @@ class MovementAnalyticsService
                     if ($isConfirmed) {
                         $totalConfirmed += $qty;
                         $byEntity[$key]['out_qty'] += $qty;
-                        $this->addToBuckets($byBucket, $hourKey, $dateKey, $monthKey, 0.0, $qty);
+                        $this->addToBuckets($byBucket, $confirmedKeys, 0.0, $qty);
                     } elseif ($isReturned) {
                         $totalReturned += $qty;
                         $byEntity[$key]['returned_qty'] += $qty;
-                        $this->addToBuckets($byBucket, $hourKey, $dateKey, $monthKey, $qty, 0.0);
+                        $this->addToBuckets($byBucket, $returnedKeys, $qty, 0.0);
                     } elseif ($isReserved) {
                         $totalReserved += $qty;
                         $byEntity[$key]['reserved_qty'] += $qty;
@@ -339,12 +373,12 @@ class MovementAnalyticsService
                             $qty = (float) $comp->confirmed_quantity > 0 ? (float) $comp->confirmed_quantity : $targetQty;
                             $totalConfirmed += $qty;
                             $byEntity[$compKey]['out_qty'] += $qty;
-                            $this->addToBuckets($byBucket, $hourKey, $dateKey, $monthKey, 0.0, $qty);
+                            $this->addToBuckets($byBucket, $confirmedKeys, 0.0, $qty);
                         } elseif ($isReturned) {
                             $qty = (float) $comp->returned_quantity > 0 ? (float) $comp->returned_quantity : $targetQty;
                             $totalReturned += $qty;
                             $byEntity[$compKey]['returned_qty'] += $qty;
-                            $this->addToBuckets($byBucket, $hourKey, $dateKey, $monthKey, $qty, 0.0);
+                            $this->addToBuckets($byBucket, $returnedKeys, $qty, 0.0);
                         } elseif ($isReserved) {
                             $qty = (float) $comp->reserved_quantity > 0 ? (float) $comp->reserved_quantity : $targetQty;
                             $totalReserved += $qty;
@@ -372,10 +406,26 @@ class MovementAnalyticsService
     }
 
     /**
+     * Build the hour/day/month bucket keys for one event time.
+     *
+     * @return array{0: string, 1: string, 2: string}
+     */
+    private function bucketKeys(Carbon $at): array
+    {
+        return [
+            $at->format('Y-m-d H:00:00'),
+            $at->format('Y-m-d'),
+            $at->format('Y-m'),
+        ];
+    }
+
+    /**
      * Add inward/outward quantity to hour, day, and month buckets.
      */
-    private function addToBuckets(array &$byBucket, string $hourKey, string $dateKey, string $monthKey, float $in, float $out): void
+    private function addToBuckets(array &$byBucket, array $keys, float $in, float $out): void
     {
+        [$hourKey, $dateKey, $monthKey] = $keys;
+
         foreach (['hour' => $hourKey, 'day' => $dateKey, 'month' => $monthKey] as $bType => $bVal) {
             if (! isset($byBucket[$bType][$bVal])) {
                 $byBucket[$bType][$bVal] = ['in' => 0.0, 'out' => 0.0];

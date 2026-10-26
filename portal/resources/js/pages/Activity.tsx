@@ -22,6 +22,7 @@ interface Movement {
     ref_order_status: string | null;
     reason: string | null;
     created_by: string | null;
+    occurred_at: string | null;
     created_at: string;
 }
 
@@ -109,7 +110,7 @@ export default function Activity() {
                     const meta = moveMeta[m.movement_type] ?? { label: m.movement_type, tone: 'gray' as const };
                     return (
                         <tr key={m.id} className="hover:bg-gray-50">
-                            <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-500">{dateTime(m.created_at)}</td>
+                            <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-500">{dateTime(m.occurred_at ?? m.created_at)}</td>
                             <td className="px-4 py-2">
                                 <div className="font-medium text-gray-800">{m.entity_name}</div>
                                 <div className="text-xs text-gray-400">
