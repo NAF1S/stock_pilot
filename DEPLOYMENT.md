@@ -482,9 +482,9 @@ The plugin (**1.0.4+**) sends `event.occurred_at` (when the WooCommerce event ac
 
 1. Upload the **plugin ZIP** so new events carry the event-time envelope.
 2. Upload the **portal bundle**. On the first request, `AutoMigrate` adds `occurred_at` and `sp_timeline_repairs` automatically — no CLI needed.
-3. **Repair the historical backlog** with a one-off cPanel cron (add it, run it, then delete the job):
+3. **Repair the historical backlog** with a one-off cPanel cron (add it, run it, then delete the job). The command is **dry-run by default** — no flag needed:
    ```bash
-   php /home/USER/apigateway.live/artisan ml:repair-timeline --dry-run
+   php /home/USER/apigateway.live/artisan ml:repair-timeline
    ```
    Review the report (it prints app vs DB clock drift and sample rows), then apply:
    ```bash
