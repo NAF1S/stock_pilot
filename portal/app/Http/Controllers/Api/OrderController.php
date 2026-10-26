@@ -93,7 +93,7 @@ class OrderController extends Controller
         $movements = ItemMovement::where('ref_type', 'order')
             ->where('ref_id', $order->id)
             ->with('item', 'product')
-            ->orderBy('created_at')
+            ->orderByRaw('COALESCE(occurred_at, created_at)')
             ->get();
 
         return response()->json(['movements' => $movements]);

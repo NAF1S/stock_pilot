@@ -67,8 +67,12 @@ defined( 'ABSPATH' ) || exit;
 			value="<?php esc_attr_e( 'Sync orders now', 'stockpilot-wc' ); ?>" />
 		<input type="submit" name="spw_sync_orders_force" class="button button-secondary"
 			value="<?php esc_attr_e( 'Force re-sync all orders', 'stockpilot-wc' ); ?>" onclick="return confirm('Re-push every order to the portal, even unchanged ones? Use this to re-import orders that were deleted from the portal.');" />
+		<input type="submit" name="spw_drain_queue" class="button button-secondary"
+			value="<?php esc_attr_e( 'Process queue now', 'stockpilot-wc' ); ?>" />
+		<input type="submit" name="spw_retry_dead" class="button button-secondary"
+			value="<?php esc_attr_e( 'Retry failed events', 'stockpilot-wc' ); ?>" onclick="return confirm('Re-queue every failed event and try to send it again?');" />
 		<span class="description">
-			<?php esc_html_e( 'Push the catalog / orders to the portal immediately — no WP-Cron needed. "Force" re-imports every order (safe; the portal re-processes idempotently).', 'stockpilot-wc' ); ?>
+			<?php esc_html_e( 'Push the catalog / orders to the portal immediately — no cron needed. "Process queue now" only sends events that are already waiting. "Retry failed events" re-queues dead ones. "Force" re-imports every order (safe; the portal re-processes idempotently).', 'stockpilot-wc' ); ?>
 		</span>
 	</form>
 
@@ -92,6 +96,10 @@ defined( 'ABSPATH' ) || exit;
 				<td><?php echo esc_html( $status['queue_pending'] ); ?></td>
 			</tr>
 			<tr>
+				<th>Oldest waiting event</th>
+				<td><?php echo esc_html( $status['oldest_pending'] ? $status['oldest_pending'] : '—' ); ?></td>
+			</tr>
+			<tr>
 				<th>Failed events (dead)</th>
 				<td><?php echo esc_html( $status['dead'] ); ?></td>
 			</tr>
@@ -103,13 +111,30 @@ defined( 'ABSPATH' ) || exit;
 				<th>Last reconciliation</th>
 				<td><?php echo esc_html( $status['last_synced'] ); ?></td>
 			</tr>
+			<tr>
+				<th>Next scheduled queue run</th>
+				<td>
+					<?php
+					echo esc_html(
+						$status['next_queue_run']
+							? wp_date( 'Y-m-d H:i:s', $status['next_queue_run'] )
+							: __( 'Not scheduled — re-open this page', 'stockpilot-wc' )
+					);
+					?>
+				</td>
+			</tr>
+			<tr>
+				<th>WP-Cron</th>
+				<td><?php echo $status['wp_cron_disabled'] ? esc_html__( 'Disabled — cPanel cron drives it', 'stockpilot-wc' ) : esc_html__( 'Enabled', 'stockpilot-wc' ); ?></td>
+			</tr>
 		</tbody>
 	</table>
 
 	<p class="description">
-		Events are drained every minute by WP-Cron, and a full reconciliation of changed
-		orders &amp; products runs hourly as a safety net.
-		<strong>Tip:</strong> enable a real server cron and set <code>DISABLE_WP_CRON</code> for
-		reliable delivery on low-traffic stores.
+		A <strong>cPanel cron</strong> calls <code>wp-cron.php</code> every 5 minutes
+		(<code>DISABLE_WP_CRON</code> is enabled), which drains this queue; a full reconciliation
+		of changed orders &amp; products runs hourly as a safety net.
+		The queue also drains when an admin opens wp-admin, and the plugin pokes
+		<code>wp-cron.php</code> itself if events sit undelivered for more than 10 minutes.
 	</p>
 </div>

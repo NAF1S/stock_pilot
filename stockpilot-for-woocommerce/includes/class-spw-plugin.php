@@ -45,6 +45,11 @@ class SPW_Plugin {
 		SPW_Capture::instance();
 		SPW_Cron::instance();
 		SPW_Admin::instance();
+
+		// Self-heal hooks live here (not at file load) so they only run when
+		// WooCommerce is active and the dependent classes are loaded.
+		add_action( 'init', array( __CLASS__, 'ensure_schedules' ) );
+		add_action( 'init', array( __CLASS__, 'maybe_self_heal' ) );
 	}
 
 	/** @return string */
@@ -119,6 +124,60 @@ class SPW_Plugin {
 	public static function clear_schedules() {
 		wp_clear_scheduled_hook( 'spw_process_queue' );
 		wp_clear_scheduled_hook( 'spw_reconcile' );
+	}
+
+	/**
+	 * Re-register cron events if they went missing.
+	 *
+	 * Activation is the only place schedules were created before, so a failed
+	 * activation, a plugin update, or a wiped cron array left the queue with
+	 * no drain event — which looks exactly like "reinstall fixes it, then it
+	 * breaks again". This runs cheaply on every request (the cron option is
+	 * autoloaded) and is idempotent.
+	 */
+	public static function ensure_schedules() {
+		self::install_schedules();
+	}
+
+	/**
+	 * Shared-hosting safety net: if events are waiting and delivery is stale,
+	 * poke wp-cron.php without blocking the request.
+	 *
+	 * `DISABLE_WP_CRON` only stops WordPress from spawning cron automatically;
+	 * a direct request to wp-cron.php still runs due events. Rate-limited to
+	 * once every 5 minutes so it cannot stampede.
+	 */
+	public static function maybe_self_heal() {
+		if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
+			return;
+		}
+
+		if ( get_transient( 'spw_self_heal_lock' ) ) {
+			return;
+		}
+
+		set_transient( 'spw_self_heal_lock', 1, 5 * MINUTE_IN_SECONDS );
+
+		if ( ! SPW_Settings::instance()->is_connected() ) {
+			return;
+		}
+
+		if ( SPW_Queue::pending_count() < 1 ) {
+			return;
+		}
+
+		if ( ! SPW_Queue::is_stale( 10 * MINUTE_IN_SECONDS ) ) {
+			return;
+		}
+
+		wp_remote_get(
+			add_query_arg( 'doing_wp_cron', time(), home_url( 'wp-cron.php' ) ),
+			array(
+				'blocking'  => false,
+				'timeout'   => 0.01,
+				'sslverify' => true,
+			)
+		);
 	}
 
 	/** On activation, push the full product catalog to seed the portal. */

@@ -204,7 +204,7 @@ class ItemController extends Controller
         $this->assertSameOrg($request, $item);
 
         $movements = ItemMovement::where('item_id', $item->id)
-            ->orderByDesc('created_at')
+            ->orderByRaw('COALESCE(occurred_at, created_at) DESC')
             ->paginate((int) $request->get('per_page', 50));
 
         return response()->json($movements);

@@ -54,23 +54,59 @@ class SPW_Queue {
 	}
 
 	/**
-	 * WP-Cron callback (every minute): claim a batch and send it.
+	 * Drain the queue within a wall-clock budget.
+	 *
+	 * On shared hosting a single PHP request must finish quickly, so instead of
+	 * claiming one large batch we claim small batches and stop at the deadline.
+	 * The next cron hit (every 5 minutes) continues where this run left off.
+	 *
+	 * @param int $budget_seconds Maximum time to spend sending.
+	 * @return array { sent, failed, remaining }
 	 */
-	public static function process() {
+	public static function process( $budget_seconds = 12 ) {
+		$summary = array( 'sent' => 0, 'failed' => 0, 'remaining' => 0 );
+
 		if ( ! SPW_Settings::instance()->is_connected() ) {
-			return;
+			return $summary;
 		}
 
-		$rows = self::claim( 15 );
+		$deadline = microtime( true ) + max( 1, (int) $budget_seconds );
 
-		foreach ( $rows as $row ) {
-			self::send_row( $row );
+		while ( microtime( true ) < $deadline ) {
+			$rows = self::claim( 10 );
+
+			if ( empty( $rows ) ) {
+				break;
+			}
+
+			foreach ( $rows as $index => $row ) {
+				if ( microtime( true ) >= $deadline ) {
+					// Hand the untouched tail of this batch back for the next run.
+					self::release( array_slice( $rows, $index ) );
+					break 2;
+				}
+
+				$result = self::send_row( $row );
+
+				if ( 'sent' === $result ) {
+					$summary['sent']++;
+				} elseif ( 'dead' === $result ) {
+					$summary['failed']++;
+				}
+			}
 		}
+
+		$summary['remaining'] = self::pending_count();
+
+		return $summary;
 	}
 
 	/**
-	 * Claim up to $limit rows that are due, with a lock to prevent double
-	 * delivery from overlapping cron runs.
+	 * Claim up to $limit due rows with a lock so overlapping runs can't
+	 * double-send the same event.
+	 *
+	 * Order matters: expired locks are reclaimed BEFORE claiming, otherwise
+	 * rows stranded by a previous fatal would be skipped until the next run.
 	 *
 	 * @param int $limit
 	 * @return array Rows
@@ -79,12 +115,24 @@ class SPW_Queue {
 		global $wpdb;
 		$table = SPW_Plugin::queue_table();
 		$now   = current_time( 'mysql' );
-		$lock  = date( 'Y-m-d H:i:s', strtotime( '+120 seconds', current_time( 'timestamp' ) ) );
+		$lock  = date( 'Y-m-d H:i:s', current_time( 'timestamp' ) + 120 );
 
+		// 1) Reclaim rows whose lock expired (previous run died mid-send).
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE $table SET status='pending', locked_until=NULL
+				 WHERE status='sending' AND (locked_until IS NULL OR locked_until < %s)",
+				$now
+			)
+		);
+
+		// 2) Claim due rows. attempts < max_attempts keeps exhausted rows out.
 		$wpdb->query(
 			$wpdb->prepare(
 				"UPDATE $table SET status='sending', locked_until=%s
-				 WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at <= %s)
+				 WHERE status='pending'
+				   AND attempts < max_attempts
+				   AND (next_attempt_at IS NULL OR next_attempt_at <= %s)
 				 LIMIT %d",
 				$lock,
 				$now,
@@ -92,19 +140,11 @@ class SPW_Queue {
 			)
 		);
 
-		// Also reclaim rows whose lock expired (previous run died mid-send).
-		$wpdb->query(
-			$wpdb->prepare(
-				"UPDATE $table SET status='pending', locked_until=NULL
-				 WHERE status='sending' AND locked_until IS NOT NULL AND locked_until < %s",
-				$now
-			)
-		);
-
+		// 3) Return exactly the rows this run locked.
 		return $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT * FROM $table WHERE status='sending' AND locked_until >= %s LIMIT %d",
-				$now,
+				"SELECT * FROM $table WHERE status='sending' AND locked_until = %s LIMIT %d",
+				$lock,
 				$limit
 			),
 			ARRAY_A
@@ -112,7 +152,57 @@ class SPW_Queue {
 	}
 
 	/**
+	 * Re-queue dead rows so they get another chance (e.g. after a portal
+	 * outage). Returns the number of rows re-queued.
+	 *
+	 * @return int
+	 */
+	public static function retry_dead() {
+		global $wpdb;
+
+		return (int) $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE " . SPW_Plugin::queue_table() . "
+				 SET status='pending', attempts=0, locked_until=NULL,
+				     next_attempt_at=%s, last_error=NULL
+				 WHERE status='dead'",
+				current_time( 'mysql' )
+			)
+		);
+	}
+
+	/**
+	 * Return claimed-but-unsent rows to 'pending' (used when the time budget
+	 * is exhausted mid-batch).
+	 *
+	 * @param array $rows Queue rows.
+	 */
+	public static function release( array $rows ) {
+		global $wpdb;
+
+		$ids = array();
+		foreach ( $rows as $row ) {
+			if ( isset( $row['id'] ) ) {
+				$ids[] = (int) $row['id'];
+			}
+		}
+
+		if ( empty( $ids ) ) {
+			return;
+		}
+
+		$list = implode( ',', $ids ); // integers only — safe to inline.
+		$wpdb->query(
+			"UPDATE " . SPW_Plugin::queue_table() . "
+			 SET status='pending', locked_until=NULL
+			 WHERE status='sending' AND id IN ($list)"
+		);
+	}
+
+	/**
 	 * Send one row and update its state based on the portal response.
+	 *
+	 * @return string 'sent' | 'dead' | 'retry'
 	 */
 	private static function send_row( array $row ) {
 		$response = SPW_Sender::send(
@@ -124,20 +214,15 @@ class SPW_Queue {
 
 		$code = isset( $response['code'] ) ? (int) $response['code'] : 0;
 
-		if ( 200 === $code ) {
+		if ( 200 === $code || 409 === $code ) {
+			// 409 = duplicate already processed by the portal — drop cleanly.
 			self::mark_sent( $row, $response );
-			return;
-		}
-
-		if ( 409 === $code ) {
-			// Duplicate already processed by the portal — drop cleanly.
-			self::mark_sent( $row, $response );
-			return;
+			return 'sent';
 		}
 
 		if ( 422 === $code ) {
 			self::mark_dead( $row, 'Portal rejected payload (422): ' . substr( (string) $response['body'], 0, 200 ) );
-			return;
+			return 'dead';
 		}
 
 		if ( 401 === $code || 403 === $code ) {
@@ -145,10 +230,12 @@ class SPW_Queue {
 			SPW_Settings::instance()->save( array( 'disabled' => 'yes' ) );
 			self::mark_dead( $row, 'Portal auth failed (' . $code . '). Connection disabled.' );
 			SPW_Admin::notify( 'StockPilot connection disabled', $response['body'] );
-			return;
+			return 'dead';
 		}
 
 		self::retry( $row, 'HTTP ' . $code . ': ' . substr( (string) $response['body'], 0, 200 ) );
+
+		return 'retry';
 	}
 
 	private static function mark_sent( array $row, array $response ) {
@@ -225,6 +312,39 @@ class SPW_Queue {
 		return (int) $wpdb->get_var(
 			"SELECT COUNT(*) FROM " . SPW_Plugin::queue_table() . " WHERE status IN ('pending','sending')"
 		);
+	}
+
+	/** @return string|null Timestamp of the last successful delivery. */
+	public static function last_push_at() {
+		global $wpdb;
+		return $wpdb->get_var( "SELECT MAX(pushed_at) FROM " . SPW_Plugin::log_table() );
+	}
+
+	/** @return string|null Created-at of the oldest pending/sending row. */
+	public static function oldest_pending_at() {
+		global $wpdb;
+		return $wpdb->get_var(
+			"SELECT MIN(created_at) FROM " . SPW_Plugin::queue_table() . " WHERE status IN ('pending','sending')"
+		);
+	}
+
+	/**
+	 * True when events are waiting and nothing has been delivered recently.
+	 *
+	 * @param int $seconds Staleness threshold.
+	 * @return bool
+	 */
+	public static function is_stale( $seconds = 600 ) {
+		if ( self::pending_count() < 1 ) {
+			return false;
+		}
+
+		$last = self::last_push_at();
+		if ( empty( $last ) ) {
+			return true;
+		}
+
+		return ( current_time( 'timestamp' ) - strtotime( $last ) ) > (int) $seconds;
 	}
 
 	/** @return string RFC4122 v4 UUID. */

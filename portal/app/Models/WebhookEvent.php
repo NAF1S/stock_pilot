@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'signature',
     'event_type',
     'wc_status',
+    'occurred_at',
     'payload',
     'status',
     'processing_error',
@@ -30,6 +31,7 @@ class WebhookEvent extends \Illuminate\Database\Eloquent\Model
     {
         return [
             'processed_at' => 'datetime',
+            'occurred_at' => 'datetime',
         ];
     }
 

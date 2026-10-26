@@ -157,7 +157,8 @@ class MovementAnalyticsService
                 $q->whereNull('ref_type')
                   ->orWhere('ref_type', '!=', 'order');
             })
-            ->whereBetween('created_at', [$from, $to]);
+            // Bucket by business event time; created_at is only the record time.
+            ->whereRaw('COALESCE(occurred_at, created_at) BETWEEN ? AND ?', [$from, $to]);
 
         if ($entityScope === 'item') {
             $query->whereNotNull('item_id');
@@ -206,10 +207,11 @@ class MovementAnalyticsService
             }
             $byEntity[$key]['events']++;
 
-            // Bucket for timeline
-            $bucketKey = $row->created_at->format('Y-m-d H:00:00');
-            $dateKey = $row->created_at->format('Y-m-d');
-            $monthKey = $row->created_at->format('Y-m');
+            // Bucket for timeline — event time when known, record time otherwise.
+            $at = $row->occurred_at ?? $row->created_at;
+            $bucketKey = $at->format('Y-m-d H:00:00');
+            $dateKey = $at->format('Y-m-d');
+            $monthKey = $at->format('Y-m');
 
             foreach (['hour' => $bucketKey, 'day' => $dateKey, 'month' => $monthKey] as $bType => $bVal) {
                 if (! isset($byBucket[$bType][$bVal])) {

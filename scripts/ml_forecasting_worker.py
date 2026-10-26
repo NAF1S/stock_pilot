@@ -158,14 +158,14 @@ def run_forecast_pipeline(engine='auto', periods=14, dry_run=False):
             # Query daily historical consumption (date_trunc by day)
             cur.execute("""
                 SELECT 
-                    date_trunc('day', created_at)::date as ds,
+                    date_trunc('day', COALESCE(occurred_at, created_at))::date as ds,
                     COALESCE(SUM(ABS(qty_delta)), 0) as y
                 FROM sp_item_movements
                 WHERE organization_id = %s
                   AND item_id = %s
                   AND qty_delta < 0
-                  AND created_at >= NOW() - INTERVAL '60 days'
-                GROUP BY date_trunc('day', created_at)::date
+                  AND COALESCE(occurred_at, created_at) >= NOW() - INTERVAL '60 days'
+                GROUP BY date_trunc('day', COALESCE(occurred_at, created_at))::date
                 ORDER BY ds ASC;
             """, (org_id, item_id))
             daily_history = cur.fetchall()

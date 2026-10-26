@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'status_to',
     'webhook_event_id',
     'payload',
+    'occurred_at',
 ])]
 class OrderStatusEvent extends \Illuminate\Database\Eloquent\Model
 {

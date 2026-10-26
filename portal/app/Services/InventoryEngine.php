@@ -30,6 +30,13 @@ use Illuminate\Support\Facades\DB;
  */
 class InventoryEngine
 {
+    /**
+     * Event time for the order currently being processed. Null means "use the
+     * current time" (manual admin actions and legacy payloads without an
+     * envelope). Set per call in processOrderEvent(), reset afterwards.
+     */
+    private ?\Illuminate\Support\Carbon $eventTime = null;
+
     public function __construct(
         private BomExpander $expander,
         private LowStockNotifier $notifier,
@@ -45,6 +52,10 @@ class InventoryEngine
         $status = strtolower((string) ($orderData['status'] ?? 'processing'));
         $affectedItemIds = [];
         $affectedProductIds = [];
+
+        // The plugin sends when the WooCommerce event actually happened. Use
+        // that for every timeline write; only fall back to "now" when absent.
+        $this->eventTime = $this->resolveEventTime($orderData);
 
         $result = DB::transaction(function () use ($orderData, $store, $event, $status, &$affectedItemIds, &$affectedProductIds) {
             $order = Order::where('organization_id', $store->organization_id)
@@ -92,6 +103,8 @@ class InventoryEngine
                 'affected_product_ids' => $affectedProductIds,
             ];
         });
+
+        $this->eventTime = null;
 
         if (! empty($affectedItemIds)) {
             $this->notifier->evaluateForItems($affectedItemIds, $store->organization_id);
@@ -203,6 +216,7 @@ class InventoryEngine
             'status_to' => $statusTo,
             'webhook_event_id' => $event->event_id,
             'payload' => $data,
+            'occurred_at' => $this->eventTimeOrNow(),
         ]);
     }
 
@@ -347,6 +361,8 @@ class InventoryEngine
 
     public function manualReserve(Order $order): array
     {
+        $this->eventTime = null; // admin action happens now
+
         $affectedItemIds = [];
         $affectedProductIds = [];
 
@@ -394,6 +410,8 @@ class InventoryEngine
 
     public function manualConfirm(Order $order): array
     {
+        $this->eventTime = null; // admin action happens now
+
         $affectedItemIds = [];
         $affectedProductIds = [];
 
@@ -437,6 +455,8 @@ class InventoryEngine
 
     public function manualRelease(Order $order): array
     {
+        $this->eventTime = null; // admin action happens now
+
         $affectedItemIds = [];
         $affectedProductIds = [];
 
@@ -448,7 +468,7 @@ class InventoryEngine
                 $payload = is_array($lockedOrder->payload) ? $lockedOrder->payload : [];
                 [$affectedItemIds, $affectedProductIds] = $this->restock($lockedOrder, $payload);
                 $lockedOrder->reservation_state = 'released';
-                $lockedOrder->released_at = now();
+                $lockedOrder->released_at = $this->eventTimeOrNow();
                 $lockedOrder->save();
             } else {
                 [$affectedItemIds, $affectedProductIds] = $this->release($lockedOrder);
@@ -494,6 +514,8 @@ class InventoryEngine
      */
     public function manualConfirmWithoutDeduction(Order $order): array
     {
+        $this->eventTime = null; // admin action happens now
+
         $affectedItemIds = [];
         $affectedProductIds = [];
 
@@ -525,7 +547,7 @@ class InventoryEngine
                     // Update component to fully confirmed
                     $component->confirmed_quantity = $target;
                     $component->reserved_quantity = 0;
-                    $component->confirmed_at = now();
+                    $component->confirmed_at = $this->eventTimeOrNow();
                     $component->status = 'confirmed';
                     $component->save();
 
@@ -538,7 +560,7 @@ class InventoryEngine
             }
 
             $lockedOrder->reservation_state = 'confirmed';
-            $lockedOrder->confirmed_at = now();
+            $lockedOrder->confirmed_at = $this->eventTimeOrNow();
             // Clear mismatch to processed (shows ok in portal)
             $lockedOrder->sync_status = 'processed';
             $lockedOrder->save();
@@ -629,7 +651,7 @@ class InventoryEngine
             $entity->save();
 
             $component->reserved_quantity = round($already + $toReserve, 4);
-            $component->reserved_at = now();
+            $component->reserved_at = $this->eventTimeOrNow();
             $component->status = $wanted > $available ? 'partial' : 'reserved';
             $component->save();
 
@@ -643,7 +665,7 @@ class InventoryEngine
             ->exists();
 
         $order->reservation_state = $hasPartial ? 'partial' : 'reserved';
-        $order->reserved_at = now();
+        $order->reserved_at = $this->eventTimeOrNow();
         $order->save();
 
         return [$itemIds, $productIds];
@@ -718,7 +740,7 @@ class InventoryEngine
 
             $component->confirmed_quantity = round($component->confirmed_quantity + $toConfirm, 4);
             $component->reserved_quantity = 0;
-            $component->confirmed_at = now();
+            $component->confirmed_at = $this->eventTimeOrNow();
             $component->status = 'confirmed';
             $component->save();
 
@@ -728,7 +750,7 @@ class InventoryEngine
         }
 
         $order->reservation_state = 'confirmed';
-        $order->confirmed_at = now();
+        $order->confirmed_at = $this->eventTimeOrNow();
         $order->save();
 
         return [$itemIds, $productIds];
@@ -758,7 +780,7 @@ class InventoryEngine
             $entity->save();
 
             $component->reserved_quantity = 0;
-            $component->released_at = now();
+            $component->released_at = $this->eventTimeOrNow();
             $component->status = 'released';
             $component->save();
 
@@ -768,7 +790,7 @@ class InventoryEngine
         }
 
         $order->reservation_state = 'released';
-        $order->released_at = now();
+        $order->released_at = $this->eventTimeOrNow();
         $order->save();
 
         return [$itemIds, $productIds];
@@ -789,6 +811,8 @@ class InventoryEngine
 
         $entities = $this->lockEntities($components);
         $fractions = $this->returnFractions($orderData, $order);
+        // Prefer the refund's own timestamp when the payload carries one.
+        $returnedAt = $this->resolveReturnTime($orderData) ?? $this->eventTimeOrNow();
         $anyReturned = false;
 
         foreach ($components as $component) {
@@ -816,13 +840,13 @@ class InventoryEngine
 
             $component->returned_quantity = round($component->returned_quantity + $returnAmt, 4);
             $component->confirmed_quantity = round($component->confirmed_quantity - $returnAmt, 4);
-            $component->returned_at = now();
+            $component->returned_at = $returnedAt;
             $component->status = $component->confirmed_quantity <= 0 && $component->reserved_quantity <= 0
                 ? 'returned'
                 : 'partial';
             $component->save();
 
-            $this->ledger($order, $entity, $component, 'return', $returnAmt, 0);
+            $this->ledger($order, $entity, $component, 'return', $returnAmt, 0, $returnedAt);
 
             $anyReturned = true;
             $this->collectEntityId($entity, $itemIds, $productIds);
@@ -832,7 +856,7 @@ class InventoryEngine
             ->every(fn (OrderItemComponent $c) => in_array($c->status, ['returned', 'pending', 'released'], true));
 
         $order->reservation_state = $anyReturned && $fullyReturned ? 'returned' : ($anyReturned ? 'partial' : 'released');
-        $order->returned_at = now();
+        $order->returned_at = $returnedAt;
         $order->save();
 
         return [$itemIds, $productIds];
@@ -996,6 +1020,7 @@ class InventoryEngine
         string $type,
         float $qtyDelta,
         float $reservedDelta,
+        ?\Illuminate\Support\Carbon $occurredAt = null,
     ): void {
         ItemMovement::create([
             'organization_id' => $order->organization_id,
@@ -1011,6 +1036,8 @@ class InventoryEngine
             'reversal_of' => $this->originalMovementId($order, $entity, $type),
             'cost_price_at_movement' => $entity instanceof Item ? $entity->cost_price : ($entity->cost ?? 0),
             'reason' => sprintf('%s — order #%s (%s %s)', $type, $order->woocommerce_number, $entity->name, $entity instanceof Item ? 'item' : 'product'),
+            // Business event time — never the webhook delivery/processing time.
+            'occurred_at' => $occurredAt ?? $this->eventTimeOrNow(),
         ]);
     }
 
@@ -1061,6 +1088,79 @@ class InventoryEngine
         }
 
         return $fractions;
+    }
+
+    /**
+     * Resolve the business event time from the plugin envelope, falling back to
+     * the order's own WooCommerce timestamps. Returns null when nothing valid
+     * exists (legacy payloads), in which case callers use the current time.
+     */
+    private function resolveEventTime(array $orderData): ?\Illuminate\Support\Carbon
+    {
+        $event = is_array($orderData['event'] ?? null) ? $orderData['event'] : [];
+
+        $candidates = [
+            $event['occurred_at'] ?? null,
+            $orderData['date_modified'] ?? null,
+            $orderData['date_created'] ?? null,
+        ];
+
+        foreach ($candidates as $value) {
+            $at = $this->parseClamped($value);
+
+            if ($at) {
+                return $at;
+            }
+        }
+
+        return null;
+    }
+
+    /** Latest refund timestamp — refund events are the business time for returns. */
+    private function resolveReturnTime(array $orderData): ?\Illuminate\Support\Carbon
+    {
+        $latest = null;
+
+        foreach ((array) ($orderData['refunds'] ?? []) as $refund) {
+            $at = $this->parseClamped($refund['date_created'] ?? null);
+
+            if ($at && (! $latest || $at->greaterThan($latest))) {
+                $latest = $at;
+            }
+        }
+
+        return $latest;
+    }
+
+    /**
+     * Parse an ISO timestamp and reject impossible values, so a bad clock or a
+     * corrupt payload can never poison the timeline.
+     */
+    private function parseClamped($value): ?\Illuminate\Support\Carbon
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            $at = \Illuminate\Support\Carbon::parse($value)->utc();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $now = now();
+
+        if ($at->greaterThan($now->copy()->addMinutes(5)) || $at->lessThan($now->copy()->subDays(400))) {
+            return null;
+        }
+
+        return $at;
+    }
+
+    /** Event time for the current order, or now() for manual/legacy flows. */
+    private function eventTimeOrNow(): \Illuminate\Support\Carbon
+    {
+        return $this->eventTime ? $this->eventTime->copy() : now();
     }
 
     private function parseDate(?string $value): ?\Illuminate\Support\Carbon

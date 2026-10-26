@@ -47,8 +47,16 @@ class ProcessWebhookEvent implements ShouldQueue
             $body = json_decode((string) $event->payload, true) ?? [];
 
             if ($event->event_type === 'order.sync') {
+                $orderData = $body['order'] ?? $body;
+
+                // Carry the plugin's event-time envelope into the engine so
+                // movements/status rows use WooCommerce time, not delivery time.
+                if (isset($body['event']) && is_array($body['event'])) {
+                    $orderData['event'] = $body['event'];
+                }
+
                 $result = app(InventoryEngine::class)->processOrderEvent(
-                    $body['order'] ?? $body,
+                    $orderData,
                     $store,
                     $event,
                 );

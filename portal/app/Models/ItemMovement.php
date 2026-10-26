@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'cost_price_at_movement',
     'reason',
     'created_by',
+    'occurred_at',
 ])]
 class ItemMovement extends \Illuminate\Database\Eloquent\Model
 {
@@ -39,6 +40,7 @@ class ItemMovement extends \Illuminate\Database\Eloquent\Model
             'reserved_after' => 'float',
             'cost_price_at_movement' => 'float',
             'created_at' => 'datetime',
+            'occurred_at' => 'datetime',
         ];
     }
 

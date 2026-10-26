@@ -37,7 +37,7 @@ class MovementController extends Controller
 
         $query = ItemMovement::where('organization_id', $orgId)
             ->with('item:id,name,sku', 'product:id,name,sku')
-            ->orderByDesc('created_at');
+            ->orderByRaw('COALESCE(occurred_at, created_at) DESC');
 
         // Entity scope: 'item' | 'product'
         $entityType = $request->get('entity');
@@ -71,11 +71,11 @@ class MovementController extends Controller
         }
 
         if ($request->filled('from')) {
-            $query->where('created_at', '>=', $request->from);
+            $query->whereRaw('COALESCE(occurred_at, created_at) >= ?', [$request->from]);
         }
 
         if ($request->filled('to')) {
-            $query->where('created_at', '<=', $request->to);
+            $query->whereRaw('COALESCE(occurred_at, created_at) <= ?', [$request->to]);
         }
 
         $rows = $query->paginate((int) $request->get('per_page', 50));
@@ -138,6 +138,7 @@ class MovementController extends Controller
             'ref_order_status' => $refOrderStatus,
             'reason' => $m->reason,
             'created_by' => $users->get($m->created_by)?->name,
+            'occurred_at' => $m->occurred_at,
             'created_at' => $m->created_at,
         ];
     }

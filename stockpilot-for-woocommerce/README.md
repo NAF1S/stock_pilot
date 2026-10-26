@@ -29,8 +29,12 @@ the right components automatically.
 
 - **Local outbound queue** (`{prefix}spw_outbound_queue`) with claim-locking, exponential
   backoff (15s → 10 min) and a dead-letter state after 12 attempts.
-- **WP-Cron** drains the queue every minute and runs an **hourly reconciliation** that
-  re-checks every order/product modified since the last sync — a safety net for missed hooks.
+- A **cPanel cron** calls `wp-cron.php` every 5 minutes to drain the queue, plus an **hourly
+  reconciliation** that re-checks every order/product modified since the last sync — a safety
+  net for missed hooks.
+- **Self-healing on shared hosting:** the plugin re-registers missing cron events, drains the
+  queue when an admin opens wp-admin, and pokes `wp-cron.php` itself if events sit undelivered
+  for 10+ minutes. A "Process queue now" button is available too.
 - **Dedup**: each event carries a stable `event_id`; the portal rejects duplicates (`409`).
 - **Read-only**: the plugin only calls `wc_get_order()`, `wc_get_product()` and reads post
   data. It never calls stock functions, never updates order status, never writes post meta.
@@ -45,11 +49,12 @@ the right components automatically.
 
 ## Operational tips
 
-- On low-traffic stores WP-Cron only runs when someone visits — enable a real server cron and
-  set `DISABLE_WP_CRON=true` in `wp-config.php` for reliable delivery:
+- On cached/low-traffic stores WP-Cron only runs when someone visits — set
+  `DISABLE_WP_CRON=true` in `wp-config.php` and add a **cPanel → Cron Jobs** entry every
+  5 minutes (shared hosting has no terminal):
 
-  ```
-  * * * * * php /path/to/wp-cron.php
+  ```cron
+  wget -q -O - https://your-store.example/wp-cron.php >/dev/null 2>&1
   ```
 
 - Deactivate ≠ uninstall: your queue and sync log are kept. Only **uninstalling** the plugin

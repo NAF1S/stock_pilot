@@ -45,10 +45,11 @@ class SPW_Payload {
 				);
 			}
 			$refunds[] = array(
-				'id'     => (int) $refund->get_id(),
-				'reason' => $refund->get_reason(),
-				'total'  => abs( (float) $refund->get_amount() ),
-				'items'  => $refund_items,
+				'id'           => (int) $refund->get_id(),
+				'reason'       => $refund->get_reason(),
+				'total'        => abs( (float) $refund->get_amount() ),
+				'date_created' => self::iso( $refund->get_date_created() ),
+				'items'        => $refund_items,
 			);
 		}
 
@@ -163,6 +164,10 @@ class SPW_Payload {
 			return;
 		}
 
+		// Business event time travels with the payload so a delayed delivery
+		// (queue backlog) can never be mistaken for the event time.
+		$payload['event'] = self::event_envelope( $order['date_modified'], $source );
+
 		$event_id = 'ord-' . md5( $order['id'] . '|' . $order['status'] . '|' . (string) $order['date_modified'] );
 
 		if ( $force ) {
@@ -196,6 +201,11 @@ class SPW_Payload {
 		}
 
 		$product = $payload['product'];
+		$payload['event'] = self::event_envelope(
+			$product['date_modified'],
+			$delete ? 'product.delete' : 'product.sync'
+		);
+
 		$event_id = 'prod-' . md5( $product['id'] . '|' . (string) $product['date_modified'] );
 
 		SPW_Queue::enqueue( array(
@@ -225,6 +235,26 @@ class SPW_Payload {
 		foreach ( $products as $product_id ) {
 			self::enqueue_product( (int) $product_id );
 		}
+	}
+
+	/**
+	 * Event-time envelope.
+	 *
+	 * `occurred_at` is when the business event actually happened in WooCommerce;
+	 * `captured_at` is when this plugin captured it. Delivery may happen much
+	 * later (queue backlog), so the portal must use occurred_at — never the
+	 * webhook receipt time — for any timeline or forecast bucketing.
+	 *
+	 * @param string|null $occurred_at ISO-8601 UTC from the WC object.
+	 * @param string      $reason      hook/tag (new_order, status:a->b, refunded, reconcile, manual, …).
+	 * @return array
+	 */
+	private static function event_envelope( $occurred_at, $reason ) {
+		return array(
+			'occurred_at' => $occurred_at ? $occurred_at : gmdate( 'Y-m-d\TH:i:s\Z' ),
+			'captured_at' => gmdate( 'Y-m-d\TH:i:s\Z' ),
+			'reason'      => (string) $reason,
+		);
 	}
 
 	/** @return string|null ISO-8601 from a WC date object. */

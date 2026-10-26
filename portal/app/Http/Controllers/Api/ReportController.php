@@ -86,14 +86,14 @@ class ReportController extends Controller
             ->where('movement_type', 'confirm')
             ->where('qty_delta', '<', 0)
             ->with('item')
-            ->orderByDesc('created_at');
+            ->orderByRaw('COALESCE(occurred_at, created_at) DESC');
 
         if ($request->filled('from')) {
-            $query->where('created_at', '>=', $request->from);
+            $query->whereRaw('COALESCE(occurred_at, created_at) >= ?', [$request->from]);
         }
 
         if ($request->filled('to')) {
-            $query->where('created_at', '<=', $request->to);
+            $query->whereRaw('COALESCE(occurred_at, created_at) <= ?', [$request->to]);
         }
 
         $rows = $query->get()->groupBy('item_id')->map(function ($group, $itemId) {

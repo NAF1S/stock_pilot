@@ -456,16 +456,48 @@ Add the Laravel scheduler entry:
 
 ### Step 4: Enable Server-Side WP-Cron
 
-By default, WordPress cron only triggers when a user visits the site. To guarantee instantaneous webhook queue dispatch and hourly reconciliation on low-traffic stores:
+By default WordPress cron only triggers when a visitor loads a page — on a cached, low-traffic store that never happens, so the outbound queue stalls. **Shared hosting has no terminal: use cPanel → Cron Jobs.**
 
-1. Edit your store's `wp-config.php`:
+1. Edit `wp-config.php` (cPanel File Manager or the hosting file editor):
    ```php
    define('DISABLE_WP_CRON', true);
    ```
-2. Add a server cron job on the WordPress hosting server:
+2. In **cPanel → Cron Jobs**, add a **5-minute** job. This is the exact command used on Hide Haven:
    ```cron
-   * * * * * php /path/to/wordpress/public_html/wp-cron.php > /dev/null 2>&1
+   wget -q -O - https://shop.hidehaven.me/wp-cron.php >/dev/null 2>&1
    ```
+   Optional hardening: add `--timeout=30 --tries=1` so a hung request cannot overlap the next run:
+   ```cron
+   wget -q -O - --timeout=30 --tries=1 https://shop.hidehaven.me/wp-cron.php >/dev/null 2>&1
+   ```
+3. **Verify:** cPanel shows the cron ran, the access log shows a `wp-cron.php` hit every ~5 minutes, and **StockPilot → Connection status** shows a recent *Last successful push*.
+
+> **The plugin self-heals if the cron silently fails:** it re-registers missing cron events on every request, drains the queue when an admin opens wp-admin, and pokes `wp-cron.php` itself when events sit undelivered for 10+ minutes. The 5-minute cPanel hit is the primary trigger; the others are safety nets.
+
+### Step 5: Event-time integrity & timeline repair (Phase 0B)
+
+The plugin (**1.0.4+**) sends `event.occurred_at` (when the WooCommerce event actually happened) and `event.captured_at` with every payload. The portal stores `sp_item_movements.occurred_at`, `sp_webhook_events.occurred_at`, status-event `occurred_at`, and order `*_at` from that value; analytics and forecast queries read `COALESCE(occurred_at, created_at)`.
+
+**Deploy order (shared hosting, no terminal):**
+
+1. Upload the **plugin ZIP** so new events carry the event-time envelope.
+2. Upload the **portal bundle**. On the first request, `AutoMigrate` adds `occurred_at` and `sp_timeline_repairs` automatically — no CLI needed.
+3. **Repair the historical backlog** with a one-off cPanel cron (add it, run it, then delete the job):
+   ```bash
+   php /home/USER/apigateway.live/artisan ml:repair-timeline --dry-run
+   ```
+   Review the report (it prints app vs DB clock drift and sample rows), then apply:
+   ```bash
+   php /home/USER/apigateway.live/artisan ml:repair-timeline --apply
+   ```
+   `--org=ID` restricts the run to one organization.
+4. **Verify:**
+   ```sql
+   SELECT COUNT(*) FROM sp_item_movements WHERE occurred_at IS NULL AND ref_type = 'order';
+   SELECT * FROM sp_timeline_repairs ORDER BY id DESC LIMIT 10;
+   ```
+
+**What is never changed:** quantities, `created_at`, and historical `sp_order_status_events` transitions (intermediate statuses are not recoverable from the payload — new events use the correct time). Rows with no derivable source keep `occurred_at = NULL`, and reads fall back to `created_at`; no timestamp is fabricated.
 
 ---
 

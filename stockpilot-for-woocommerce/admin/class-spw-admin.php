@@ -21,7 +21,35 @@ class SPW_Admin {
 	private function __construct() {
 		add_action( 'admin_menu', array( $this, 'menu' ) );
 		add_action( 'admin_init', array( $this, 'handle_save' ) );
+		add_action( 'admin_init', array( $this, 'maybe_drain' ), 20 );
 		add_action( 'admin_notices', array( $this, 'print_notices' ) );
+	}
+
+	/**
+	 * Opportunistically drain the queue when an admin opens wp-admin.
+	 * Rate-limited (once / 30 s) and time-boxed (5 s) so the dashboard never
+	 * crawls; the cPanel cron remains the primary drain.
+	 */
+	public function maybe_drain() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		if ( ! SPW_Settings::instance()->is_connected() ) {
+			return;
+		}
+
+		if ( get_transient( 'spw_admin_drain_lock' ) ) {
+			return;
+		}
+
+		set_transient( 'spw_admin_drain_lock', 1, 30 );
+
+		if ( SPW_Queue::pending_count() < 1 ) {
+			return;
+		}
+
+		SPW_Queue::process( 5 );
 	}
 
 	public function menu() {
@@ -44,13 +72,51 @@ class SPW_Admin {
 		$has_action = isset( $_POST['spw_save'] )
 			|| isset( $_POST['spw_sync_products'] )
 			|| isset( $_POST['spw_sync_orders'] )
-			|| isset( $_POST['spw_sync_orders_force'] );
+			|| isset( $_POST['spw_sync_orders_force'] )
+			|| isset( $_POST['spw_drain_queue'] )
+			|| isset( $_POST['spw_retry_dead'] );
 
 		if ( ! $has_action ) {
 			return;
 		}
 
 		check_admin_referer( 'spw_settings' );
+
+		// Re-queue dead events, then try them.
+		if ( isset( $_POST['spw_retry_dead'] ) ) {
+			$retried = SPW_Queue::retry_dead();
+			$result  = SPW_Queue::process( 12 );
+			add_settings_error(
+				'spw',
+				'spw_retry_dead',
+				sprintf(
+					/* translators: 1: re-queued count, 2: sent count, 3: remaining count */
+					__( 'Re-queued %1$d failed event(s): %2$d sent, %3$d still waiting.', 'stockpilot-wc' ),
+					(int) $retried,
+					(int) $result['sent'],
+					(int) $result['remaining']
+				),
+				'success'
+			);
+			return;
+		}
+
+		// Drain whatever is already queued — no re-enqueue, no WP-Cron needed.
+		if ( isset( $_POST['spw_drain_queue'] ) ) {
+			$result = SPW_Queue::process( 12 );
+			add_settings_error(
+				'spw',
+				'spw_drain',
+				sprintf(
+					/* translators: 1: sent count, 2: remaining count */
+					__( 'Queue processed: %1$d sent, %2$d still waiting.', 'stockpilot-wc' ),
+					(int) $result['sent'],
+					(int) $result['remaining']
+				),
+				'success'
+			);
+			return;
+		}
 
 		// Manual sync buttons (work even when WP-Cron is disabled).
 		if ( isset( $_POST['spw_sync_products'] ) ) {
@@ -118,6 +184,18 @@ class SPW_Admin {
 			echo '<div class="notice notice-warning"><p>StockPilot: ' . esc_html( $queue_dead ) . ' event(s) failed to sync and are waiting for attention.</p></div>';
 		}
 
+		if ( SPW_Settings::instance()->is_connected() ) {
+			$pending = SPW_Queue::pending_count();
+			$last    = SPW_Queue::last_push_at();
+			$stale   = $pending > 0 && ( empty( $last ) || ( current_time( 'timestamp' ) - strtotime( $last ) ) > 10 * MINUTE_IN_SECONDS );
+
+			if ( $stale ) {
+				echo '<div class="notice notice-error"><p><strong>StockPilot: ' . esc_html( $pending ) . ' event(s) are waiting and nothing has been delivered for over 10 minutes.</strong> The cPanel cron may not be running. Open the StockPilot page or click <em>Process queue now</em>.</p></div>';
+			} elseif ( $pending >= 100 ) {
+				echo '<div class="notice notice-warning"><p>StockPilot: a backlog of ' . esc_html( $pending ) . ' events is queued. Open the StockPilot page to drain it.</p></div>';
+			}
+		}
+
 		if ( SPW_Settings::instance()->is_connected() && ! $this->heartbeat_recent() ) {
 			echo '<div class="notice notice-info"><p>StockPilot is configured but the portal has not confirmed a connection yet. Use the Test Connection button.</p></div>';
 		}
@@ -136,11 +214,14 @@ class SPW_Admin {
 		global $wpdb;
 
 		return array(
-			'connected'      => SPW_Settings::instance()->is_connected(),
-			'queue_pending'  => SPW_Queue::pending_count(),
-			'dead'           => (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . SPW_Plugin::queue_table() . " WHERE status='dead'" ),
-			'last_sent'      => $wpdb->get_var( "SELECT MAX(pushed_at) FROM " . SPW_Plugin::log_table() ),
-			'last_synced'    => get_option( 'spw_last_order_reconcile', '—' ),
+			'connected'        => SPW_Settings::instance()->is_connected(),
+			'queue_pending'    => SPW_Queue::pending_count(),
+			'oldest_pending'   => SPW_Queue::oldest_pending_at(),
+			'dead'             => (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . SPW_Plugin::queue_table() . " WHERE status='dead'" ),
+			'last_sent'        => $wpdb->get_var( "SELECT MAX(pushed_at) FROM " . SPW_Plugin::log_table() ),
+			'last_synced'      => get_option( 'spw_last_order_reconcile', '—' ),
+			'next_queue_run'   => wp_next_scheduled( 'spw_process_queue' ),
+			'wp_cron_disabled' => defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON,
 		);
 	}
 

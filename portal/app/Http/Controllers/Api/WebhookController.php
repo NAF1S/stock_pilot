@@ -95,6 +95,7 @@ class WebhookController extends Controller
                 'signature' => (string) $request->header('X-Signature'),
                 'event_type' => $type,
                 'wc_status' => $status ? strtolower($status) : null,
+                'occurred_at' => $this->eventOccurredAt($body),
                 'payload' => json_encode($body),
                 'status' => 'received',
             ]);
@@ -105,5 +106,33 @@ class WebhookController extends Controller
         $this->dispatch($event);
 
         return response()->json(['ok' => true, 'event_id' => $event->id]);
+    }
+
+    /**
+     * When the business event actually happened (plugin envelope), clamped so
+     * a bad/absent value can never poison the timeline. Null = unknown; the
+     * processing code then falls back to the record time.
+     */
+    private function eventOccurredAt(array $body): ?\Illuminate\Support\Carbon
+    {
+        $iso = $body['event']['occurred_at'] ?? null;
+
+        if (! is_string($iso) || trim($iso) === '') {
+            return null;
+        }
+
+        try {
+            $at = \Illuminate\Support\Carbon::parse($iso)->utc();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $now = now();
+
+        if ($at->greaterThan($now->copy()->addMinutes(5)) || $at->lessThan($now->copy()->subDays(400))) {
+            return null;
+        }
+
+        return $at;
     }
 }
