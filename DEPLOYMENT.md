@@ -511,6 +511,28 @@ php artisan analytics:exclude-movements --list
 
 `sp_movement_exclusions` is a **read-side filter only**: the ledger rows stay visible in Activity and are never edited or deleted. Movement analytics and the PHP burn-rate query skip the listed ids.
 
+### Releasing reservations for orders deleted in WooCommerce
+
+WooCommerce order deletions do not update the portal by themselves. The plugin (**1.0.5+**) now sends a minimal `cancelled` signal on order trash/delete. For historical ghost orders — or until the updated plugin is uploaded — use the release command:
+
+```bash
+# Dry-run report
+php artisan orders:release-ghosts --org=1 --before=2026-10-20
+
+# Release through the engine; --delete removes the order rows but preserves the ledger
+php artisan orders:release-ghosts --org=1 --before=2026-10-20 --apply --delete
+```
+
+Then reconcile any residual cache/ledger drift against the active order rows:
+
+```bash
+php artisan audit:reservations
+php artisan reservations:repair --org=1 --type=item --ids=1,2,3
+php artisan reservations:repair --org=1 --type=item --ids=1,2,3 --apply
+```
+
+Releases and repairs are **new append-only movements**; existing ledger and component rows are never edited. Every applied repair is recorded in `sp_reservation_repairs`.
+
 ---
 
 ## Environment Variables & Secrets Reference
