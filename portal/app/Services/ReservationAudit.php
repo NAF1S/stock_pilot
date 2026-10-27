@@ -256,7 +256,7 @@ class ReservationAudit
     private function productOrphans(?int $orgId): array
     {
         $row = DB::table('sp_order_item_components as c')
-            ->leftJoin('sp_products as p', DB::raw('p.id = COALESCE(c.component_product_id, c.product_id)'))
+            ->leftJoin('sp_products as p', 'p.id', '=', DB::raw('COALESCE(c.component_product_id, c.product_id)'))
             ->where('c.reserved_quantity', '>', 0)
             ->where(function ($q): void {
                 $q->whereNotNull('c.component_product_id')
