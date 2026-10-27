@@ -499,6 +499,18 @@ The plugin (**1.0.4+**) sends `event.occurred_at` (when the WooCommerce event ac
 
 **What is never changed:** quantities, `created_at`, and historical `sp_order_status_events` transitions (intermediate statuses are not recoverable from the payload — new events use the correct time). Rows with no derivable source keep `occurred_at = NULL`, and reads fall back to `created_at`; no timestamp is fabricated.
 
+### Excluding a bad adjustment batch from analytics
+
+Manual adjustments sometimes arrive as a bulk add followed by a correction (e.g. +100k then −100k on the same items). They net to ~0 but dominate the gross in/out chart. Register the movement ids instead of deleting anything:
+
+```bash
+php artisan analytics:exclude-movements --ids=2983,2984,2992 --reason="bulk correction" --dry-run
+php artisan analytics:exclude-movements --ids=2983,2984,2992 --reason="bulk correction"
+php artisan analytics:exclude-movements --list
+```
+
+`sp_movement_exclusions` is a **read-side filter only**: the ledger rows stay visible in Activity and are never edited or deleted. Movement analytics and the PHP burn-rate query skip the listed ids.
+
 ---
 
 ## Environment Variables & Secrets Reference
