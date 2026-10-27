@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
+import { ReservationsPanel } from '../components/ReservationsPanel';
 import { apiDelete, apiGet, apiPost, apiPut, errMsg } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { money, number } from '../lib/format';
@@ -43,6 +44,7 @@ export default function Items() {
     const [editing, setEditing] = useState<Item | null>(null);
     const [form, setForm] = useState(emptyForm);
     const [adjusting, setAdjusting] = useState<Item | null>(null);
+    const [reservationsFor, setReservationsFor] = useState<number | null>(null);
     const [adj, setAdj] = useState({ type: 'add', quantity: '1', reason: '' });
     const [flash, setFlash] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -156,7 +158,8 @@ export default function Items() {
                 empty={!isLoading && !data?.data?.length ? <EmptyState title="No items yet" hint="Add your first component, e.g. Thank-you card" /> : undefined}
             >
                 {data?.data?.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
+                    <Fragment key={item.id}>
+                    <tr className="hover:bg-gray-50">
                         <td className="px-4 py-2">
                             <div className="font-medium text-gray-800">{item.name}</div>
                             {item.sku && <div className="text-xs text-gray-400">{item.sku}</div>}
@@ -169,6 +172,9 @@ export default function Items() {
                         <td className="px-4 py-2 text-gray-700">{money(item.asset_value, currency)}</td>
                         <td className="px-4 py-2">{item.is_low_stock ? <Badge tone="red">Low</Badge> : <Badge tone="green">OK</Badge>}</td>
                         <td className="px-4 py-2 text-right whitespace-nowrap">
+                            <Button size="sm" variant="ghost" onClick={() => setReservationsFor(reservationsFor === item.id ? null : item.id)}>
+                                {reservationsFor === item.id ? '▾' : '▸'} Reservations
+                            </Button>
                             <Button size="sm" variant="ghost" onClick={() => { setAdjusting(item); setAdj({ type: 'add', quantity: '1', reason: '' }); setError(null); }}>Adjust</Button>
                             <Button size="sm" variant="ghost" onClick={() => openEdit(item)}>Edit</Button>
                             {user?.role === 'admin' && (
@@ -176,6 +182,14 @@ export default function Items() {
                             )}
                         </td>
                     </tr>
+                    {reservationsFor === item.id && (
+                        <tr>
+                            <td colSpan={9} className="bg-gray-50 px-4 py-3">
+                                <ReservationsPanel kind="item" id={item.id} />
+                            </td>
+                        </tr>
+                    )}
+                    </Fragment>
                 ))}
             </Table>
 

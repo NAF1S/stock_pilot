@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
+import { ReservationsPanel } from '../components/ReservationsPanel';
 import { apiDelete, apiGet, apiPost, apiPut, errMsg } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { money } from '../lib/format';
@@ -58,6 +59,7 @@ export default function Products() {
     const [noRecipe, setNoRecipe] = useState(false);
     const [flash, setFlash] = useState<string | null>(null);
     const [recipeFor, setRecipeFor] = useState<Product | null>(null);
+    const [reservationsFor, setReservationsFor] = useState<number | null>(null);
     const [createOpen, setCreateOpen] = useState(false);
     const [createForm, setCreateForm] = useState({ name: '', sku: '', price: '0' });
 
@@ -109,7 +111,8 @@ export default function Products() {
                 empty={!isLoading && !data?.data?.length ? <EmptyState title="No products yet" hint="Products appear here automatically once the WooCommerce plugin connects" /> : undefined}
             >
                 {data?.data?.map((p) => (
-                    <tr key={p.id} className="hover:bg-gray-50">
+                    <Fragment key={p.id}>
+                    <tr className="hover:bg-gray-50">
                         <td className="px-4 py-2">
                             <div className="font-medium text-gray-800">{p.name}</div>
                             {p.sku && <div className="text-xs text-gray-400">{p.sku}</div>}
@@ -127,12 +130,23 @@ export default function Products() {
                         <td className="px-4 py-2">{p.is_low_stock ? <Badge tone="red">Low</Badge> : <Badge tone="green">OK</Badge>}</td>
                         <td className="px-4 py-2">{p.has_recipe ? <Badge tone="green">Recipe</Badge> : <Badge tone="amber">No recipe</Badge>}</td>
                         <td className="px-4 py-2 text-right whitespace-nowrap">
+                            <Button size="sm" variant="ghost" onClick={() => setReservationsFor(reservationsFor === p.id ? null : p.id)}>
+                                {reservationsFor === p.id ? '▾' : '▸'} Reservations
+                            </Button>
                             <Button size="sm" variant="ghost" onClick={() => setRecipeFor(p)}>Recipe</Button>
                             {user?.role === 'admin' && (
                                 <Button size="sm" variant="ghost" onClick={() => { if (confirm(`Delete ${p.name}?`)) remove.mutate(p.id); }}>🗑</Button>
                             )}
                         </td>
                     </tr>
+                    {reservationsFor === p.id && (
+                        <tr>
+                            <td colSpan={9} className="bg-gray-50 px-4 py-3">
+                                <ReservationsPanel kind="product" id={p.id} />
+                            </td>
+                        </tr>
+                    )}
+                    </Fragment>
                 ))}
             </Table>
 

@@ -9,6 +9,7 @@ use App\Models\ItemMovement;
 use App\Models\StockAdjustment;
 use App\Services\AssetValuation;
 use App\Services\LowStockNotifier;
+use App\Services\ReservationQuery;
 use App\Services\SettingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -208,6 +209,29 @@ class ItemController extends Controller
             ->paginate((int) $request->get('per_page', 50));
 
         return response()->json($movements);
+    }
+
+    /** Orders whose components currently reserve this item. */
+    public function reservations(Request $request, Item $item, ReservationQuery $reservations): JsonResponse
+    {
+        $this->assertSameOrg($request, $item);
+
+        $rows = $reservations->forItem((int) $request->user()->organization_id, $item);
+
+        return response()->json([
+            'item' => [
+                'id' => $item->id,
+                'name' => $item->name,
+                'sku' => $item->sku,
+                'unit' => $item->unit,
+                'quantity_reserved' => (float) $item->quantity_reserved,
+            ],
+            'reservations' => $rows
+                ->map(fn ($row) => $reservations->payload($row, 'item', $item->id))
+                ->values(),
+            'total_reserved' => round((float) $rows->sum('reserved_quantity'), 4),
+            'truncated' => $rows->count() >= 200,
+        ]);
     }
 
     public function valueHistory(Request $request, Item $item): JsonResponse

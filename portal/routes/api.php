@@ -84,6 +84,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('low-stock', [ItemController::class, 'lowStock']);
         Route::get('{item}', [ItemController::class, 'show']);
         Route::get('{item}/movements', [ItemController::class, 'movements']);
+        Route::get('{item}/reservations', [ItemController::class, 'reservations']);
         Route::get('{item}/value-history', [ItemController::class, 'valueHistory']);
         Route::post('/', [ItemController::class, 'store'])->middleware('role:manager,admin');
         Route::put('{item}', [ItemController::class, 'update'])->middleware('role:manager,admin');
@@ -104,6 +105,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/', [ProductController::class, 'index']);
         Route::get('{product}', [ProductController::class, 'show']);
         Route::get('{product}/bom', [ProductController::class, 'bom']);
+        Route::get('{product}/reservations', [ProductController::class, 'reservations']);
         Route::put('{product}/bom', [ProductController::class, 'saveBom'])->middleware('role:manager,admin');
         Route::get('{product}/cost-summary', [ProductController::class, 'costSummary']);
         Route::get('{product}/validate', [ProductController::class, 'validate']);

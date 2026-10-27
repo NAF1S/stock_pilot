@@ -8,6 +8,7 @@ use App\Models\Item;
 use App\Models\ItemMovement;
 use App\Models\Product;
 use App\Services\LowStockNotifier;
+use App\Services\ReservationQuery;
 use App\Services\SettingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -156,6 +157,31 @@ class ProductController extends Controller
         $product->delete();
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Orders currently reserving this product's own stock, plus orders that
+     * consume it as a sub-component of another sellable product.
+     */
+    public function reservations(Request $request, Product $product, ReservationQuery $reservations): JsonResponse
+    {
+        $this->assertSameOrg($request, $product);
+
+        $rows = $reservations->forProduct((int) $request->user()->organization_id, $product);
+
+        return response()->json([
+            'product' => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'sku' => $product->sku,
+                'quantity_reserved' => (float) $product->quantity_reserved,
+            ],
+            'reservations' => $rows
+                ->map(fn ($row) => $reservations->payload($row, 'product', $product->id))
+                ->values(),
+            'total_reserved' => round((float) $rows->sum('reserved_quantity'), 4),
+            'truncated' => $rows->count() >= 200,
+        ]);
     }
 
     public function bom(Request $request, Product $product): JsonResponse
