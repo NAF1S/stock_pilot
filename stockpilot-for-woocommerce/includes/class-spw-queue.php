@@ -24,7 +24,7 @@ class SPW_Queue {
 		) );
 
 		if ( $already_sent ) {
-			return;
+			return true;
 		}
 
 		$queued = $wpdb->get_var( $wpdb->prepare(
@@ -33,10 +33,10 @@ class SPW_Queue {
 		) );
 
 		if ( $queued ) {
-			return;
+			return true;
 		}
 
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			SPW_Plugin::queue_table(),
 			array(
 				'payload_id'   => self::uuid(),
@@ -51,6 +51,8 @@ class SPW_Queue {
 			),
 			array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
 		);
+
+		return false !== $inserted;
 	}
 
 	/**
@@ -72,27 +74,48 @@ class SPW_Queue {
 
 		$deadline = microtime( true ) + max( 1, (int) $budget_seconds );
 
-		while ( microtime( true ) < $deadline ) {
-			$rows = self::claim( 10 );
+		// Orders/products get their own budget so a traffic burst cannot starve
+		// them; traffic gets a smaller per-cycle share.
+		$plans = array(
+			array( 'mode' => 'priority', 'limit' => 10 ),
+			array( 'mode' => 'traffic', 'limit' => 5 ),
+		);
 
-			if ( empty( $rows ) ) {
-				break;
+		while ( microtime( true ) < $deadline ) {
+			$worked = false;
+
+			foreach ( $plans as $plan ) {
+				if ( microtime( true ) >= $deadline ) {
+					break;
+				}
+
+				$rows = self::claim( $plan['limit'], $plan['mode'] );
+
+				if ( empty( $rows ) ) {
+					continue;
+				}
+
+				$worked = true;
+
+				foreach ( $rows as $index => $row ) {
+					if ( microtime( true ) >= $deadline ) {
+						// Hand the untouched tail of this batch back for the next run.
+						self::release( array_slice( $rows, $index ) );
+						break 2;
+					}
+
+					$result = self::send_row( $row );
+
+					if ( 'sent' === $result ) {
+						$summary['sent']++;
+					} elseif ( 'dead' === $result ) {
+						$summary['failed']++;
+					}
+				}
 			}
 
-			foreach ( $rows as $index => $row ) {
-				if ( microtime( true ) >= $deadline ) {
-					// Hand the untouched tail of this batch back for the next run.
-					self::release( array_slice( $rows, $index ) );
-					break 2;
-				}
-
-				$result = self::send_row( $row );
-
-				if ( 'sent' === $result ) {
-					$summary['sent']++;
-				} elseif ( 'dead' === $result ) {
-					$summary['failed']++;
-				}
+			if ( ! $worked ) {
+				break;
 			}
 		}
 
@@ -108,14 +131,22 @@ class SPW_Queue {
 	 * Order matters: expired locks are reclaimed BEFORE claiming, otherwise
 	 * rows stranded by a previous fatal would be skipped until the next run.
 	 *
-	 * @param int $limit
+	 * @param int    $limit
+	 * @param string $mode  all | priority (non-traffic) | traffic
 	 * @return array Rows
 	 */
-	public static function claim( $limit ) {
+	public static function claim( $limit, $mode = 'all' ) {
 		global $wpdb;
 		$table = SPW_Plugin::queue_table();
 		$now   = current_time( 'mysql' );
 		$lock  = date( 'Y-m-d H:i:s', current_time( 'timestamp' ) + 120 );
+
+		$filter = '';
+		if ( 'priority' === $mode ) {
+			$filter = " AND event_type <> 'traffic.rollup'";
+		} elseif ( 'traffic' === $mode ) {
+			$filter = " AND event_type = 'traffic.rollup'";
+		}
 
 		// 1) Reclaim rows whose lock expired (previous run died mid-send).
 		$wpdb->query(
@@ -133,6 +164,7 @@ class SPW_Queue {
 				 WHERE status='pending'
 				   AND attempts < max_attempts
 				   AND (next_attempt_at IS NULL OR next_attempt_at <= %s)
+				   $filter
 				 LIMIT %d",
 				$lock,
 				$now,
@@ -143,7 +175,7 @@ class SPW_Queue {
 		// 3) Return exactly the rows this run locked.
 		return $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT * FROM $table WHERE status='sending' AND locked_until = %s LIMIT %d",
+				"SELECT * FROM $table WHERE status='sending' AND locked_until = %s $filter LIMIT %d",
 				$lock,
 				$limit
 			),
@@ -244,11 +276,16 @@ class SPW_Queue {
 
 		$wpdb->update( $table, array( 'status' => 'done' ), array( 'id' => $row['id'] ), array( '%s' ), array( '%d' ) );
 
+		$event_type  = (string) $row['event_type'];
+		$entity_type = 0 === strpos( $event_type, 'prod' )
+			? 'product'
+			: ( 'traffic.rollup' === $event_type ? 'traffic' : 'order' );
+
 		$wpdb->replace(
 			SPW_Plugin::log_table(),
 			array(
 				'event_id'      => $row['event_id'],
-				'entity_type'   => 0 === strpos( $row['event_type'], 'prod' ) ? 'product' : 'order',
+				'entity_type'   => $entity_type,
 				'entity_id'     => $row['entity_id'],
 				'payload_hash'  => hash( 'sha256', $row['payload'] ),
 				'status'        => 'sent',

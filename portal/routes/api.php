@@ -53,6 +53,7 @@ Route::prefix('auth')->group(function () {
 Route::middleware(['store.key'])->prefix('webhooks')->group(function () {
     Route::post('orders', [WebhookController::class, 'orders'])->middleware('throttle:120,1');
     Route::post('products', [WebhookController::class, 'products'])->middleware('throttle:120,1');
+    Route::post('traffic', [WebhookController::class, 'traffic'])->middleware('throttle:240,1');
     Route::post('health', [WebhookController::class, 'health']);
     Route::get('test', [WebhookController::class, 'test']);
 });

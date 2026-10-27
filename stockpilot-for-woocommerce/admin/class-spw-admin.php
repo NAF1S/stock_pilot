@@ -74,7 +74,8 @@ class SPW_Admin {
 			|| isset( $_POST['spw_sync_orders'] )
 			|| isset( $_POST['spw_sync_orders_force'] )
 			|| isset( $_POST['spw_drain_queue'] )
-			|| isset( $_POST['spw_retry_dead'] );
+			|| isset( $_POST['spw_retry_dead'] )
+			|| isset( $_POST['spw_flush_traffic'] );
 
 		if ( ! $has_action ) {
 			return;
@@ -93,6 +94,24 @@ class SPW_Admin {
 					/* translators: 1: re-queued count, 2: sent count, 3: remaining count */
 					__( 'Re-queued %1$d failed event(s): %2$d sent, %3$d still waiting.', 'stockpilot-wc' ),
 					(int) $retried,
+					(int) $result['sent'],
+					(int) $result['remaining']
+				),
+				'success'
+			);
+			return;
+		}
+
+		// Flush dirty traffic buckets now, then deliver whatever is queued.
+		if ( isset( $_POST['spw_flush_traffic'] ) ) {
+			SPW_Traffic::instance()->flush();
+			$result = SPW_Queue::process( 12 );
+			add_settings_error(
+				'spw',
+				'spw_traffic_flush',
+				sprintf(
+					/* translators: 1: sent count, 2: remaining count */
+					__( 'Traffic buckets flushed; queue: %1$d sent, %2$d still waiting.', 'stockpilot-wc' ),
 					(int) $result['sent'],
 					(int) $result['remaining']
 				),
@@ -147,9 +166,10 @@ class SPW_Admin {
 		$api_secret = isset( $_POST['spw_api_secret'] ) ? sanitize_text_field( wp_unslash( $_POST['spw_api_secret'] ) ) : '';
 
 		$save_values = array(
-			'portal_url' => untrailingslashit( $portal_url ),
-			'api_key'    => $api_key,
-			'disabled'   => 'no',
+			'portal_url'      => untrailingslashit( $portal_url ),
+			'api_key'         => $api_key,
+			'disabled'        => 'no',
+			'traffic_enabled' => isset( $_POST['spw_traffic_enabled'] ) ? 'yes' : 'no',
 		);
 
 		// If the secret field still shows the masked placeholder, keep the stored secret.
@@ -222,6 +242,9 @@ class SPW_Admin {
 			'last_synced'      => get_option( 'spw_last_order_reconcile', '—' ),
 			'next_queue_run'   => wp_next_scheduled( 'spw_process_queue' ),
 			'wp_cron_disabled' => defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON,
+			'traffic_enabled'  => SPW_Settings::instance()->get( 'traffic_enabled' ),
+			'traffic_dirty'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . SPW_Plugin::traffic_rollup_table() . " WHERE dirty = 1" ),
+			'traffic_last_flush' => get_option( 'spw_traffic_last_flush', '—' ),
 		);
 	}
 

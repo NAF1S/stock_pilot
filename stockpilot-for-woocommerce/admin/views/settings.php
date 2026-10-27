@@ -54,6 +54,20 @@ defined( 'ABSPATH' ) || exit;
 					</p>
 				</td>
 			</tr>
+			<tr>
+				<th scope="row">Traffic capture</th>
+				<td>
+					<label>
+						<input name="spw_traffic_enabled" type="checkbox" value="yes"
+							<?php checked( $all['traffic_enabled'], 'yes' ); ?> />
+						<?php esc_html_e( 'Capture product views, add-to-cart and cart removals', 'stockpilot-wc' ); ?>
+					</label>
+					<p class="description">
+						Aggregated in hourly buckets and sent in batches every 5 minutes. No IP, user agent,
+						or persistent visitor id is stored; the visitor id is hashed with a daily salt.
+					</p>
+				</td>
+			</tr>
 		</table>
 
 		<?php submit_button( __( 'Save and test connection', 'stockpilot-wc' ), 'primary', 'spw_save' ); ?>
@@ -71,6 +85,8 @@ defined( 'ABSPATH' ) || exit;
 			value="<?php esc_attr_e( 'Process queue now', 'stockpilot-wc' ); ?>" />
 		<input type="submit" name="spw_retry_dead" class="button button-secondary"
 			value="<?php esc_attr_e( 'Retry failed events', 'stockpilot-wc' ); ?>" onclick="return confirm('Re-queue every failed event and try to send it again?');" />
+		<input type="submit" name="spw_flush_traffic" class="button button-secondary"
+			value="<?php esc_attr_e( 'Flush traffic now', 'stockpilot-wc' ); ?>" />
 		<span class="description">
 			<?php esc_html_e( 'Push the catalog / orders to the portal immediately — no cron needed. "Process queue now" only sends events that are already waiting. "Retry failed events" re-queues dead ones. "Force" re-imports every order (safe; the portal re-processes idempotently).', 'stockpilot-wc' ); ?>
 		</span>
@@ -124,6 +140,18 @@ defined( 'ABSPATH' ) || exit;
 				</td>
 			</tr>
 			<tr>
+				<th>Traffic capture</th>
+				<td><?php echo 'yes' === $status['traffic_enabled'] ? esc_html__( 'Enabled', 'stockpilot-wc' ) : esc_html__( 'Disabled', 'stockpilot-wc' ); ?></td>
+			</tr>
+			<tr>
+				<th>Dirty traffic buckets</th>
+				<td><?php echo esc_html( $status['traffic_dirty'] ); ?></td>
+			</tr>
+			<tr>
+				<th>Last traffic flush</th>
+				<td><?php echo esc_html( $status['traffic_last_flush'] ); ?></td>
+			</tr>
+			<tr>
 				<th>WP-Cron</th>
 				<td><?php echo $status['wp_cron_disabled'] ? esc_html__( 'Disabled — cPanel cron drives it', 'stockpilot-wc' ) : esc_html__( 'Enabled', 'stockpilot-wc' ); ?></td>
 			</tr>
@@ -133,8 +161,9 @@ defined( 'ABSPATH' ) || exit;
 	<p class="description">
 		A <strong>cPanel cron</strong> calls <code>wp-cron.php</code> every 5 minutes
 		(<code>DISABLE_WP_CRON</code> is enabled), which drains this queue; a full reconciliation
-		of changed orders &amp; products runs hourly as a safety net.
-		The queue also drains when an admin opens wp-admin, and the plugin pokes
+		of changed orders &amp; products runs hourly as a safety net. Traffic buckets are flushed
+		to the queue every 5 minutes and get a separate delivery budget so they cannot starve
+		order events. The queue also drains when an admin opens wp-admin, and the plugin pokes
 		<code>wp-cron.php</code> itself if events sit undelivered for more than 10 minutes.
 	</p>
 </div>

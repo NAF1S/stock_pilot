@@ -233,6 +233,96 @@ class SPW_Payload {
 	}
 
 	/**
+	 * Build one traffic.rollup payload from a local rollup row.
+	 *
+	 * The payload is a cumulative snapshot for the bucket; the portal UPSERTs
+	 * it, so retries and duplicate deliveries are idempotent.
+	 *
+	 * @param array $row
+	 * @return array|null
+	 */
+	public static function traffic_payload( array $row ) {
+		$bucket_hour = isset( $row['bucket_hour'] ) ? (string) $row['bucket_hour'] : '';
+		$product_id  = isset( $row['product_id'] ) ? (int) $row['product_id'] : 0;
+
+		if ( '' === $bucket_hour || $product_id <= 0 ) {
+			return null;
+		}
+
+		$timestamp = strtotime( $bucket_hour . ' UTC' );
+
+		if ( false === $timestamp ) {
+			return null;
+		}
+
+		$bucket_iso  = gmdate( 'Y-m-d\TH:i:s\Z', $timestamp );
+		$bucket_date = get_date_from_gmt( $bucket_hour, 'Y-m-d' );
+
+		if ( empty( $bucket_date ) ) {
+			$bucket_date = substr( $bucket_hour, 0, 10 );
+		}
+
+		$counts = array();
+
+		foreach ( array( 'page_views', 'add_to_cart', 'cart_removals', 'orders', 'units', 'sessions', 'unique_visitors' ) as $field ) {
+			$counts[ $field ] = max( 0, isset( $row[ $field ] ) ? (int) $row[ $field ] : 0 );
+		}
+
+		return array(
+			'traffic' => array_merge(
+				array(
+					'product_id'  => $product_id,
+					'bucket_hour' => $bucket_iso,
+					'bucket_date' => $bucket_date,
+				),
+				$counts
+			),
+			'event'   => self::event_envelope( $bucket_iso, 'traffic_rollup' ),
+		);
+	}
+
+	/**
+	 * Enqueue one traffic.rollup event.
+	 *
+	 * @param array $row
+	 * @return bool True when queued, already queued, or already sent.
+	 */
+	public static function enqueue_traffic( array $row ) {
+		if ( ! SPW_Settings::instance()->is_connected() ) {
+			return false;
+		}
+
+		$payload = self::traffic_payload( $row );
+
+		if ( ! $payload ) {
+			return false;
+		}
+
+		$traffic = $payload['traffic'];
+
+		$event_id = 'traffic-' . md5( implode( '|', array(
+			$traffic['product_id'],
+			$traffic['bucket_hour'],
+			$traffic['bucket_date'],
+			$traffic['page_views'],
+			$traffic['add_to_cart'],
+			$traffic['cart_removals'],
+			$traffic['orders'],
+			$traffic['units'],
+			$traffic['sessions'],
+			$traffic['unique_visitors'],
+		) ) );
+
+		return SPW_Queue::enqueue( array(
+			'entity_id'     => (string) $traffic['product_id'],
+			'event_id'      => $event_id,
+			'event_type'    => 'traffic.rollup',
+			'payload'       => wp_json_encode( $payload ),
+			'date_modified' => $traffic['bucket_hour'],
+		) );
+	}
+
+	/**
 	 * Enqueue a product catalog event.
 	 *
 	 * @param int  $product_id

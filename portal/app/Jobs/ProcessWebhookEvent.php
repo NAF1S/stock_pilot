@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Processors\TrafficProcessor;
 use App\Models\Order;
 use App\Models\WebhookEvent;
 use App\Services\InventoryEngine;
@@ -96,6 +97,14 @@ class ProcessWebhookEvent implements ShouldQueue
                 );
 
                 $event->status = 'processed';
+            } elseif ($event->event_type === 'traffic.rollup') {
+                $result = app(TrafficProcessor::class)->process($body['traffic'] ?? $body, $store);
+
+                $event->status = ($result['action'] ?? null) === 'noop' ? 'noop' : 'processed';
+
+                if (($result['action'] ?? null) === 'noop') {
+                    $event->processing_error = $result['reason'] ?? 'Traffic rollup was not stored.';
+                }
             } else {
                 $event->status = 'noop';
             }

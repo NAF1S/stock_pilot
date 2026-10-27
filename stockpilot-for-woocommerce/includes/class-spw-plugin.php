@@ -9,7 +9,12 @@ class SPW_Plugin {
 
 	const QUEUE_TABLE = 'spw_outbound_queue';
 	const LOG_TABLE   = 'spw_sync_log';
+	const TRAFFIC_ROLLUP_TABLE   = 'spw_traffic_rollup';
+	const TRAFFIC_VISITORS_TABLE = 'spw_traffic_visitors';
 	const OPTIONS_KEY = 'spw_options';
+
+	/** Bump to run install_tables() on existing installs after an update. */
+	const DB_VERSION = '2';
 
 	/** @var SPW_Plugin|null */
 	private static $instance = null;
@@ -34,6 +39,7 @@ class SPW_Plugin {
 		require_once SPW_DIR . 'includes/class-spw-queue.php';
 		require_once SPW_DIR . 'includes/class-spw-sender.php';
 		require_once SPW_DIR . 'includes/class-spw-capture.php';
+		require_once SPW_DIR . 'includes/class-spw-traffic.php';
 		require_once SPW_DIR . 'includes/class-spw-cron.php';
 		require_once SPW_DIR . 'admin/class-spw-admin.php';
 	}
@@ -43,11 +49,13 @@ class SPW_Plugin {
 
 		SPW_Settings::instance();
 		SPW_Capture::instance();
+		SPW_Traffic::instance();
 		SPW_Cron::instance();
 		SPW_Admin::instance();
 
 		// Self-heal hooks live here (not at file load) so they only run when
 		// WooCommerce is active and the dependent classes are loaded.
+		add_action( 'init', array( __CLASS__, 'maybe_upgrade_tables' ), 5 );
 		add_action( 'init', array( __CLASS__, 'ensure_schedules' ) );
 		add_action( 'init', array( __CLASS__, 'maybe_self_heal' ) );
 	}
@@ -62,6 +70,28 @@ class SPW_Plugin {
 	public static function log_table() {
 		global $wpdb;
 		return $wpdb->prefix . self::LOG_TABLE;
+	}
+
+	/** @return string */
+	public static function traffic_rollup_table() {
+		global $wpdb;
+		return $wpdb->prefix . self::TRAFFIC_ROLLUP_TABLE;
+	}
+
+	/** @return string */
+	public static function traffic_visitors_table() {
+		global $wpdb;
+		return $wpdb->prefix . self::TRAFFIC_VISITORS_TABLE;
+	}
+
+	/** Create/update the plugin tables on existing installs after an update. */
+	public static function maybe_upgrade_tables() {
+		if ( self::DB_VERSION === get_option( 'spw_db_version' ) ) {
+			return;
+		}
+
+		self::install_tables();
+		update_option( 'spw_db_version', self::DB_VERSION );
 	}
 
 	/** Create the custom tables. */
@@ -108,8 +138,39 @@ class SPW_Plugin {
 			KEY entity (entity_type, entity_id)
 		) $charset;";
 
+		$traffic = "CREATE TABLE {$wpdb->prefix}" . self::TRAFFIC_ROLLUP_TABLE . " (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			bucket_hour DATETIME NOT NULL,
+			product_id BIGINT UNSIGNED NOT NULL,
+			page_views INT UNSIGNED NOT NULL DEFAULT 0,
+			add_to_cart INT UNSIGNED NOT NULL DEFAULT 0,
+			cart_removals INT UNSIGNED NOT NULL DEFAULT 0,
+			orders INT UNSIGNED NOT NULL DEFAULT 0,
+			units INT UNSIGNED NOT NULL DEFAULT 0,
+			sessions INT UNSIGNED NOT NULL DEFAULT 0,
+			unique_visitors INT UNSIGNED NOT NULL DEFAULT 0,
+			dirty TINYINT(1) NOT NULL DEFAULT 1,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY bucket (bucket_hour, product_id),
+			KEY dirty (dirty)
+		) $charset;";
+
+		$visitors = "CREATE TABLE {$wpdb->prefix}" . self::TRAFFIC_VISITORS_TABLE . " (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			visitor_day DATE NOT NULL,
+			product_id BIGINT UNSIGNED NOT NULL,
+			visitor_hash CHAR(64) NOT NULL,
+			created_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY visitor (visitor_day, product_id, visitor_hash),
+			KEY visitor_day (visitor_day)
+		) $charset;";
+
 		dbDelta( $queue );
 		dbDelta( $log );
+		dbDelta( $traffic );
+		dbDelta( $visitors );
 	}
 
 	public static function install_schedules() {
@@ -119,11 +180,15 @@ class SPW_Plugin {
 		if ( ! wp_next_scheduled( 'spw_reconcile' ) ) {
 			wp_schedule_event( time() + 300, 'hourly', 'spw_reconcile' );
 		}
+		if ( ! wp_next_scheduled( 'spw_flush_traffic' ) ) {
+			wp_schedule_event( time() + 300, 'spw_every_five_minutes', 'spw_flush_traffic' );
+		}
 	}
 
 	public static function clear_schedules() {
 		wp_clear_scheduled_hook( 'spw_process_queue' );
 		wp_clear_scheduled_hook( 'spw_reconcile' );
+		wp_clear_scheduled_hook( 'spw_flush_traffic' );
 	}
 
 	/**
@@ -193,6 +258,10 @@ class SPW_Plugin {
 		$schedules['spw_every_minute'] = array(
 			'interval' => 60,
 			'display'  => __( 'Every minute', 'stockpilot-wc' ),
+		);
+		$schedules['spw_every_five_minutes'] = array(
+			'interval' => 5 * MINUTE_IN_SECONDS,
+			'display'  => __( 'Every five minutes', 'stockpilot-wc' ),
 		);
 		return $schedules;
 	}

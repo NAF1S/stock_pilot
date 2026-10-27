@@ -3,7 +3,7 @@
  * Plugin Name:       StockPilot for WooCommerce
  * Plugin URI:        https://example.com/stockpilot
  * Description:       Read-only bridge between your WooCommerce store and the StockPilot inventory portal. Pushes orders, order status changes and product catalog data. Never modifies your store.
- * Version:           1.0.5
+ * Version:           1.1.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            StockPilot
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SPW_VERSION', '1.0.5' );
+define( 'SPW_VERSION', '1.1.0' );
 define( 'SPW_FILE', __FILE__ );
 define( 'SPW_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SPW_URL', plugin_dir_url( __FILE__ ) );
@@ -44,6 +44,7 @@ function spw_activate() {
     SPW_Plugin::load_classes();
 
     SPW_Plugin::install_tables();
+    update_option( 'spw_db_version', SPW_Plugin::DB_VERSION );
     SPW_Plugin::install_schedules();
     SPW_Plugin::queue_catalog_sync();
 }

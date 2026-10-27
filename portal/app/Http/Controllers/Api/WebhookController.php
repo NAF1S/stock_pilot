@@ -37,6 +37,18 @@ class WebhookController extends Controller
         return $this->ingest($request, $store, $type, $body, null, null);
     }
 
+    public function traffic(Request $request): JsonResponse
+    {
+        $store = $request->attributes->get('store');
+        $body = json_decode($request->getContent(), true);
+
+        if (! is_array($body) || empty($body['traffic']['product_id']) || empty($body['traffic']['bucket_hour'])) {
+            return response()->json(['error' => 'Invalid traffic payload'], 422);
+        }
+
+        return $this->ingest($request, $store, 'traffic.rollup', $body, null, null);
+    }
+
     public function health(Request $request): JsonResponse
     {
         $store = $request->attributes->get('store');

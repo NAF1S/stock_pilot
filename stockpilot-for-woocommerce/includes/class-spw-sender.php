@@ -8,7 +8,7 @@ defined( 'ABSPATH' ) || exit;
 class SPW_Sender {
 
 	/**
-	 * @param string $event_type order.sync | product.sync | product.delete
+	 * @param string $event_type order.sync | product.sync | product.delete | traffic.rollup
 	 * @param string $event_id
 	 * @param string $nonce
 	 * @param string $body_json
@@ -29,7 +29,14 @@ class SPW_Sender {
 			return array( 'code' => 0, 'body' => 'Portal URL must use HTTPS' );
 		}
 
-		$endpoint = 0 === strpos( $event_type, 'prod' ) ? '/api/webhooks/products' : '/api/webhooks/orders';
+		$endpoints = array(
+			'order.sync'     => '/api/webhooks/orders',
+			'product.sync'   => '/api/webhooks/products',
+			'product.delete' => '/api/webhooks/products',
+			'traffic.rollup' => '/api/webhooks/traffic',
+		);
+
+		$endpoint = isset( $endpoints[ $event_type ] ) ? $endpoints[ $event_type ] : '/api/webhooks/orders';
 		$url      = $portal_url . $endpoint;
 
 		$timestamp = (string) time();

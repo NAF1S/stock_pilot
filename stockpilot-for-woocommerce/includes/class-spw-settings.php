@@ -23,10 +23,12 @@ class SPW_Settings {
 	/** @return array Default settings. */
 	public function defaults() {
 		return array(
-			'portal_url' => '',
-			'api_key'    => '',
-			'api_secret' => '',
-			'disabled'   => 'no',
+			'portal_url'             => '',
+			'api_key'                => '',
+			'api_secret'             => '',
+			'disabled'               => 'no',
+			'traffic_enabled'        => 'yes',
+			'traffic_require_consent' => 'no',
 		);
 	}
 
