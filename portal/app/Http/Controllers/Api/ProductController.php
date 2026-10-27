@@ -141,6 +141,7 @@ class ProductController extends Controller
                 'ref_id' => $product->id,
                 'cost_price_at_movement' => $product->cost ?? 0,
                 'reason' => $data['reason'] ?? 'Manual adjustment',
+                'occurred_at' => now(),
                 'created_by' => $request->user()->id,
             ]);
         });

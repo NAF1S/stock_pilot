@@ -310,6 +310,11 @@ test('deleting an order releases its reservations and removes the record', funct
     expect(Order::count())->toBe(0);
     expect($products['belt']->fresh()->quantity_reserved)->toBe(0.0); // released
     expect($items['Leather']->fresh()->quantity_reserved)->toBe(0.0);
+
+    // The synthetic delete event must not be left looking unprocessed.
+    $deleteEvent = WebhookEvent::where('event_id', 'like', 'delete-%')->first();
+    expect($deleteEvent)->not->toBeNull();
+    expect($deleteEvent->status)->toBeIn(['processed', 'noop']);
 });
 
 test('bulk reprocess applies to selected orders', function () {
@@ -328,6 +333,9 @@ test('bulk reprocess applies to selected orders', function () {
     $this->postJson('/api/orders/bulk', ['action' => 'reprocess', 'ids' => $ids])
         ->assertOk()
         ->assertJsonCount(2, 'results');
+
+    expect(WebhookEvent::where('event_id', 'like', 'reprocess-%')->count())->toBe(2);
+    expect(WebhookEvent::where('event_id', 'like', 'reprocess-%')->where('status', 'received')->count())->toBe(0);
 });
 
 test('bulk delete removes selected orders and releases their stock', function () {
@@ -347,6 +355,9 @@ test('bulk delete removes selected orders and releases their stock', function ()
 
     expect(Order::count())->toBe(0);
     expect($products['belt']->fresh()->quantity_reserved)->toBe(0.0);
+
+    expect(WebhookEvent::where('event_id', 'like', 'delete-%')->count())->toBe(2);
+    expect(WebhookEvent::where('event_id', 'like', 'delete-%')->where('status', 'received')->count())->toBe(0);
 });
 
 test('reprocessing tops up a zero-stock component to its full demand', function () {

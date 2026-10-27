@@ -136,6 +136,7 @@ class OrderRecomposer
                 'ref_type' => 'sync_fix',
                 'ref_id' => $order->id,
                 'reason' => "Cache reconciliation for order #{$order->woocommerce_number}",
+                'occurred_at' => now(),
             ]);
         }
 

@@ -79,6 +79,7 @@ class ItemController extends Controller
                     'ref_type' => 'seed',
                     'cost_price_at_movement' => (float) $data['cost_price'],
                     'reason' => 'Initial stock on creation',
+                    'occurred_at' => now(),
                     'created_by' => auth()->id(),
                 ]);
             }
@@ -174,6 +175,7 @@ class ItemController extends Controller
                 'ref_id' => $item->id,
                 'cost_price_at_movement' => $item->cost_price,
                 'reason' => ($data['reason'] ?? null) ?: ($data['type'] === 'add' ? 'Stock added' : 'Stock removed'),
+                'occurred_at' => now(),
                 'created_by' => auth()->id(),
             ]);
 

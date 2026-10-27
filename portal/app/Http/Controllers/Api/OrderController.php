@@ -242,7 +242,15 @@ class OrderController extends Controller
             'status' => 'received',
         ]);
 
-        return app(InventoryEngine::class)->processOrderEvent($order->payload, $store, $event);
+        $result = app(InventoryEngine::class)->processOrderEvent($order->payload, $store, $event);
+
+        // This path calls the engine directly, so persist the event outcome;
+        // otherwise every manual reprocess leaves a misleading `received` row.
+        $event->status = ($result['action'] ?? null) === 'noop' ? 'noop' : 'processed';
+        $event->processed_at = now();
+        $event->save();
+
+        return $result;
     }
 
     private function bulkApply(Order $order, string $action): array
@@ -310,7 +318,14 @@ class OrderController extends Controller
                     'captured_at' => $occurredAt->toIso8601String(),
                     'reason' => 'portal_delete',
                 ];
-                app(InventoryEngine::class)->processOrderEvent($payload, $order->store, $event);
+
+                $result = app(InventoryEngine::class)->processOrderEvent($payload, $order->store, $event);
+
+                // Persist the outcome before the order row is removed; the event
+                // stays behind as the audit trail and must not look unprocessed.
+                $event->status = ($result['action'] ?? null) === 'noop' ? 'noop' : 'processed';
+                $event->processed_at = now();
+                $event->save();
             }
 
             // Do NOT delete sp_item_movements: the ledger is append-only and has
