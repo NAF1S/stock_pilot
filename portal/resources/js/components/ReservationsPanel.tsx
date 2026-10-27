@@ -85,7 +85,12 @@ export function ReservationsPanel({ kind, id }: { kind: Kind; id: number }) {
                 <span className="text-xs text-gray-500">
                     {rows.length} line{rows.length === 1 ? '' : 's'} · {number(total)} reserved
                     {cached != null && Math.abs(Number(cached) - total) > 0.0001 && (
-                        <span className="ml-1 text-amber-600">(cached total: {number(cached)})</span>
+                        <span
+                            className="ml-1 text-amber-600"
+                            title="The cached reserved quantity differs from the sum of the active reservation rows. The rows below are the actual orders; this usually means historical cache drift."
+                        >
+                            (cached: {number(cached)} — differs from listed rows)
+                        </span>
                     )}
                 </span>
             </div>
