@@ -157,6 +157,13 @@ class MovementAnalyticsService
                 $q->whereNull('ref_type')
                   ->orWhere('ref_type', '!=', 'order');
             })
+            // Known-bad batches can be hidden read-side; the ledger row itself
+            // is never modified or deleted.
+            ->whereNotIn('id', function ($q) use ($orgId) {
+                $q->select('movement_id')
+                  ->from('sp_movement_exclusions')
+                  ->where('organization_id', $orgId);
+            })
             // Bucket by business event time; created_at is only the record time.
             ->whereRaw('COALESCE(occurred_at, created_at) BETWEEN ? AND ?', [$from, $to]);
 

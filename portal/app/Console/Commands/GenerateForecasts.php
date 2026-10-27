@@ -47,6 +47,9 @@ class GenerateForecasts extends Command
                     ->where('item_id', $item->id)
                     ->where('qty_delta', '<', 0)
                     ->whereRaw('COALESCE(occurred_at, created_at) >= ?', [Carbon::now()->subDays(30)])
+                    ->whereNotIn('id', DB::table('sp_movement_exclusions')
+                        ->select('movement_id')
+                        ->where('organization_id', $org->id))
                     ->sum(DB::raw('ABS(qty_delta)'));
 
                 $dailyBurn = round($out30 / 30.0, 4);

@@ -11,6 +11,7 @@ use App\Models\Organization;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -474,5 +475,108 @@ class MovementAnalyticsTest extends TestCase
         $this->assertArrayHasKey($eventDay->toDateString(), $timeline->all());
         $this->assertEquals(5.0, (float) $timeline[$eventDay->toDateString()]['out_qty']);
         $this->assertEquals(0.0, (float) $timeline[now()->toDateString()]['out_qty']);
+    }
+
+    public function test_excluded_adjustments_are_hidden_from_analytics_but_kept_in_the_ledger(): void
+    {
+        [$org, $user] = $this->createTenant('Exclusion Tenant');
+
+        $item = Item::create([
+            'organization_id' => $org->id,
+            'name' => 'Bulk Packaging',
+            'sku' => 'BULK-1',
+            'unit' => 'pcs',
+            'quantity_on_hand' => 0,
+        ]);
+
+        $added = ItemMovement::create([
+            'organization_id' => $org->id,
+            'item_id' => $item->id,
+            'movement_type' => 'adjustment',
+            'qty_delta' => 100000,
+            'reserved_delta' => 0,
+            'on_hand_after' => 100000,
+            'reserved_after' => 0,
+            'ref_type' => 'adjustment',
+            'reason' => 'Stock added',
+        ]);
+
+        $removed = ItemMovement::create([
+            'organization_id' => $org->id,
+            'item_id' => $item->id,
+            'movement_type' => 'adjustment',
+            'qty_delta' => -100000,
+            'reserved_delta' => 0,
+            'on_hand_after' => 0,
+            'reserved_after' => 0,
+            'ref_type' => 'adjustment',
+            'reason' => 'Stock removed',
+        ]);
+
+        DB::table('sp_movement_exclusions')->insert([
+            [
+                'organization_id' => $org->id,
+                'movement_id' => $added->id,
+                'reason' => 'test exclusion',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'organization_id' => $org->id,
+                'movement_id' => $removed->id,
+                'reason' => 'test exclusion',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/movements/analytics?period=week');
+        $response->assertOk();
+
+        $this->assertEquals(0.0, $response->json('summary.total_in'));
+        $this->assertEquals(0.0, $response->json('summary.total_out'));
+
+        // The ledger itself is untouched.
+        $this->assertDatabaseHas('sp_item_movements', ['id' => $added->id]);
+        $this->assertDatabaseHas('sp_item_movements', ['id' => $removed->id]);
+    }
+
+    public function test_exclude_movements_command_is_idempotent(): void
+    {
+        [$org] = $this->createTenant('Exclusion Command Tenant');
+
+        $item = Item::create([
+            'organization_id' => $org->id,
+            'name' => 'Command Packaging',
+            'unit' => 'pcs',
+            'quantity_on_hand' => 0,
+        ]);
+
+        $movement = ItemMovement::create([
+            'organization_id' => $org->id,
+            'item_id' => $item->id,
+            'movement_type' => 'adjustment',
+            'qty_delta' => 50,
+            'reserved_delta' => 0,
+            'on_hand_after' => 50,
+            'reserved_after' => 0,
+            'ref_type' => 'adjustment',
+            'reason' => 'Stock added',
+        ]);
+
+        $this->artisan('analytics:exclude-movements', [
+            '--ids' => (string) $movement->id,
+            '--reason' => 'test',
+        ])->assertSuccessful();
+
+        $this->artisan('analytics:exclude-movements', [
+            '--ids' => (string) $movement->id,
+            '--reason' => 'test',
+        ])->assertSuccessful();
+
+        $this->assertSame(1, DB::table('sp_movement_exclusions')->where('movement_id', $movement->id)->count());
+        $this->assertDatabaseHas('sp_item_movements', ['id' => $movement->id]);
     }
 }
