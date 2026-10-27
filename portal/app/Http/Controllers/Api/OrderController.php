@@ -272,8 +272,9 @@ class OrderController extends Controller
     /**
      * Remove an order after reversing its stock impact. Outstanding reservations
      * are released and confirmed quantities restocked (via a synthetic
-     * 'cancelled' event through the engine), then the order and its ledger rows
-     * are deleted. The webhook_event row is left as an audit trail.
+     * 'cancelled' event through the engine). The order and its component rows
+     * are deleted, but the append-only ledger is preserved as the stock audit
+     * trail — sp_item_movements has no FK to the order, so it survives.
      */
     private function destroyOrder(Order $order): void
     {
@@ -281,31 +282,39 @@ class OrderController extends Controller
             $payload = is_array($order->payload) ? $order->payload : null;
 
             if ($order->store && $payload && in_array($order->reservation_state, ['reserved', 'partial', 'confirmed'], true)) {
+                $occurredAt = now();
+
                 $event = WebhookEvent::create([
                     'organization_id' => $order->organization_id,
                     'store_id' => $order->store_id,
                     'woocommerce_order_id' => $order->woocommerce_id,
-                    'event_id' => 'delete-'.$order->id.'-'.now()->getTimestamp(),
+                    'event_id' => 'delete-'.$order->id.'-'.$occurredAt->getTimestamp(),
                     'nonce' => Str::random(32),
                     'event_type' => 'order.sync',
                     'wc_status' => 'cancelled',
-                    'payload' => json_encode(['order' => ['id' => $order->woocommerce_id]]),
+                    'occurred_at' => $occurredAt,
+                    'payload' => json_encode([
+                        'order' => ['id' => $order->woocommerce_id, 'status' => 'cancelled'],
+                        'event' => [
+                            'occurred_at' => $occurredAt->toIso8601String(),
+                            'captured_at' => $occurredAt->toIso8601String(),
+                            'reason' => 'portal_delete',
+                        ],
+                    ]),
                     'status' => 'received',
                 ]);
 
                 $payload['status'] = 'cancelled';
+                $payload['event'] = [
+                    'occurred_at' => $occurredAt->toIso8601String(),
+                    'captured_at' => $occurredAt->toIso8601String(),
+                    'reason' => 'portal_delete',
+                ];
                 app(InventoryEngine::class)->processOrderEvent($payload, $order->store, $event);
             }
 
-            // The ledger is self-referencing (release/return rows point at the
-            // original reserve/confirm via reversal_of). Clear those pointers
-            // before deleting, or MySQL's FK rejects the DELETE.
-            ItemMovement::where('ref_type', 'order')
-                ->where('ref_id', $order->id)
-                ->whereNotNull('reversal_of')
-                ->update(['reversal_of' => null]);
-
-            ItemMovement::where('ref_type', 'order')->where('ref_id', $order->id)->delete();
+            // Do NOT delete sp_item_movements: the ledger is append-only and has
+            // no FK to the order, so it remains after the order row is gone.
             $order->delete();
         });
     }

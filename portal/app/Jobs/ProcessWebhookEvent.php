@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Order;
 use App\Models\WebhookEvent;
 use App\Services\InventoryEngine;
 use App\Services\ProductSyncProcessor;
@@ -53,6 +54,31 @@ class ProcessWebhookEvent implements ShouldQueue
                 // movements/status rows use WooCommerce time, not delivery time.
                 if (isset($body['event']) && is_array($body['event'])) {
                     $orderData['event'] = $body['event'];
+                }
+
+                // A minimal cancelled payload is the plugin's delete/trash
+                // signal. If the order does not exist in the portal, do not
+                // create a phantom order for it.
+                if (($orderData['status'] ?? null) === 'cancelled' && empty($orderData['items'])) {
+                    $existing = Order::where('organization_id', $event->organization_id)
+                        ->where('woocommerce_id', $orderData['id'] ?? null)
+                        ->first();
+
+                    if (! $existing) {
+                        $event->status = 'noop';
+                        $event->processed_at = now();
+                        $event->save();
+
+                        return;
+                    }
+
+                    // Keep the stored order payload (items, dates, refunds); the
+                    // delete signal only supplies the id and status.
+                    if (is_array($existing->payload)) {
+                        $orderData = array_replace($existing->payload, $orderData);
+                    }
+
+                    $orderData['status'] = 'cancelled';
                 }
 
                 $result = app(InventoryEngine::class)->processOrderEvent(

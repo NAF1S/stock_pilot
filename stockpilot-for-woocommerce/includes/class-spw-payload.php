@@ -184,6 +184,55 @@ class SPW_Payload {
 	}
 
 	/**
+	 * Enqueue a minimal release signal for a trashed/deleted order.
+	 *
+	 * The order may already be gone, so the full payload cannot be rebuilt.
+	 * The portal only needs the Woo id + status=cancelled to release the
+	 * reservation it already holds. The event id is deterministic per order +
+	 * modified time, so the Woo and WordPress hooks firing together dedupe.
+	 *
+	 * @param int    $order_id
+	 * @param string $source
+	 */
+	public static function enqueue_order_deleted( $order_id, $source = 'deleted' ) {
+		if ( ! SPW_Settings::instance()->is_connected() ) {
+			return;
+		}
+
+		$order_id = (int) $order_id;
+
+		if ( $order_id <= 0 ) {
+			return;
+		}
+
+		$modified = null;
+		$order    = wc_get_order( $order_id );
+
+		if ( $order ) {
+			$modified = self::iso( $order->get_date_modified() );
+		}
+
+		// When the order is already gone, a minute stamp keeps both hooks from
+		// the same delete operation on the same event id.
+		$stamp    = $modified ? $modified : gmdate( 'Y-m-d\TH:i' );
+		$event_id = 'ord-del-' . md5( $order_id . '|' . $stamp );
+
+		SPW_Queue::enqueue( array(
+			'entity_id'     => (string) $order_id,
+			'event_id'      => $event_id,
+			'event_type'    => 'order.sync',
+			'payload'       => wp_json_encode( array(
+				'order' => array(
+					'id'     => $order_id,
+					'status' => 'cancelled',
+				),
+				'event' => self::event_envelope( gmdate( 'Y-m-d\TH:i:s\Z' ), $source ),
+			) ),
+			'date_modified' => $modified ? $modified : gmdate( 'Y-m-d\TH:i:s\Z' ),
+		) );
+	}
+
+	/**
 	 * Enqueue a product catalog event.
 	 *
 	 * @param int  $product_id
