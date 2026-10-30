@@ -20,6 +20,13 @@ if (!$path || !is_file($path)) {
 
 $rows = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
 
+foreach ($rows as &$row) {
+    if (isset($row['traffic_sources']) && is_array($row['traffic_sources'])) {
+        $row['traffic_sources'] = json_encode($row['traffic_sources']);
+    }
+}
+unset($row);
+
 $unique = ['organization_id', 'store_id', 'entity_type', 'entity_id', 'feature_date'];
 $update = [
     'units_consumed', 'units_returned', 'units_reserved', 'order_count', 'revenue',
