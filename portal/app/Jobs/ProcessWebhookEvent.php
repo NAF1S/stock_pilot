@@ -62,6 +62,7 @@ class ProcessWebhookEvent implements ShouldQueue
                 // create a phantom order for it.
                 if (($orderData['status'] ?? null) === 'cancelled' && empty($orderData['items'])) {
                     $existing = Order::where('organization_id', $event->organization_id)
+                        ->where('store_id', $event->store_id)
                         ->where('woocommerce_id', $orderData['id'] ?? null)
                         ->first();
 

@@ -59,6 +59,7 @@ class InventoryEngine
 
         $result = DB::transaction(function () use ($orderData, $store, $event, $status, &$affectedItemIds, &$affectedProductIds) {
             $order = Order::where('organization_id', $store->organization_id)
+                ->where('store_id', $store->id)
                 ->where('woocommerce_id', $orderData['id'])
                 ->lockForUpdate()
                 ->first();

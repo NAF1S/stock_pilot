@@ -14,6 +14,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'woo_product_id',
     'source',
     'name',
+    'slug',
+    'permalink',
     'sku',
     'product_type',
     'publish_status',

@@ -38,6 +38,8 @@ class ProductSyncProcessor
             'woo_product_id' => $wooProductId,
             'source' => 'woo',
             'name' => $data['name'] ?? 'Unnamed product',
+            'slug' => $data['slug'] ?? null,
+            'permalink' => $data['permalink'] ?? null,
             'sku' => $data['sku'] ?? null,
             'product_type' => $data['type'] ?? 'simple',
             'publish_status' => $data['status'] ?? 'publish',
