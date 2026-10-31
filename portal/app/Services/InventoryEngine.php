@@ -80,16 +80,33 @@ class InventoryEngine
             $this->recordStatusEvent($order, $previousStatus, $status, $orderData, $event);
 
             $action = $this->resolveAction($order->reservation_state, $status, $store->organization_id, $order);
+            $warning = null;
+
+            if ($action === null) {
+                // An unmapped status must be visible. Silently stamping the
+                // order "processed" hides a status-map typo for weeks.
+                $warning = "WooCommerce status '{$status}' is not mapped to an inventory action.";
+                $order->sync_status = 'error';
+            }
 
             if ($action && $action !== 'noop') {
+                // A valid event clears an earlier "unmapped status" error.
+                if ($order->sync_status === 'error') {
+                    $order->sync_status = 'pending';
+                }
+
                 [$affectedItemIds, $affectedProductIds] = $this->runAction($action, $order, $orderData);
                 $order->refresh();
+
+                if ($warning === null && $order->sync_status === 'error') {
+                    $warning = 'One or more order components could not be resolved (missing, deleted, or cyclic recipe).';
+                }
             }
 
             // ensureComponents() owns sync_status (processed/unmapped/error);
             // confirm() may override it with 'mismatch'. Only promote a brand-new
             // order (still 'pending' because its event was a noop) to processed.
-            if ($order->sync_status === 'pending') {
+            if (! $warning && $order->sync_status === 'pending') {
                 $order->sync_status = 'processed';
             }
 
@@ -100,6 +117,7 @@ class InventoryEngine
                 'order_id' => $order->id,
                 'reservation_state' => $order->reservation_state,
                 'action' => $action ?? 'noop',
+                'warning' => $warning,
                 'affected_item_ids' => $affectedItemIds,
                 'affected_product_ids' => $affectedProductIds,
             ];
@@ -289,21 +307,60 @@ class InventoryEngine
 
     private function statusMap(int $organizationId): array
     {
-        return (array) ($this->settings->get($organizationId, 'status_map') ?? [
+        $defaults = [
             // "confirmed" is a custom status common in order-status plugins.
             'reserve' => ['pending', 'pending-payment', 'on-hold', 'processing', 'confirmed'],
             'confirm' => ['completed'],
             'release' => ['cancelled', 'failed', 'trash'],
             'return' => ['refunded', 'returned', 'returned-with-charge'],
-        ]);
+        ];
+
+        $stored = $this->settings->get($organizationId, 'status_map');
+
+        if (! is_array($stored)) {
+            return $defaults;
+        }
+
+        $map = $defaults;
+
+        foreach (array_keys($defaults) as $action) {
+            if (! array_key_exists($action, $stored)) {
+                continue;
+            }
+
+            $statuses = [];
+
+            foreach (is_array($stored[$action]) ? $stored[$action] : [] as $status) {
+                if (! is_string($status)) {
+                    continue;
+                }
+
+                $status = strtolower(trim($status));
+
+                if ($status !== '' && ! in_array($status, $statuses, true)) {
+                    $statuses[] = $status;
+                }
+            }
+
+            // An empty reserve/confirm list silently disables inventory work;
+            // keep the safe defaults unless the operator explicitly maps something.
+            if ($statuses !== [] || ! in_array($action, ['reserve', 'confirm'], true)) {
+                $map[$action] = $statuses;
+            }
+        }
+
+        return $map;
     }
 
     private function resolveAction(string $state, string $status, int $organizationId, Order $order): ?string
     {
         $incoming = null;
+        $map = $this->statusMap($organizationId);
 
-        foreach ($this->statusMap($organizationId) as $action => $statuses) {
-            if (in_array($status, (array) $statuses, true)) {
+        // Evaluate terminal actions first so a legacy map with a status in more
+        // than one list cannot let reserve shadow a deduction/release/return.
+        foreach (['confirm', 'release', 'return', 'reserve'] as $action) {
+            if (in_array($status, $map[$action] ?? [], true)) {
                 $incoming = $action;
                 break;
             }
@@ -612,6 +669,33 @@ class InventoryEngine
         $entities = $this->lockEntities($components);
         $itemIds = [];
         $productIds = [];
+        $missing = [];
+        $touched = 0;
+
+        // Demand and prior reservations per stockable entity. Comparing the
+        // order's total demand with the ledger (rather than per component) keeps
+        // a re-materialized component from double-reserving while still letting
+        // two order lines that share an item reserve both quantities.
+        $entityDemand = [];
+        foreach ($components as $component) {
+            $key = $this->entityKey($component);
+            $entityDemand[$key] = round(($entityDemand[$key] ?? 0) + (float) $component->total_quantity, 4);
+        }
+
+        $entityReserved = [];
+        $reservedRows = ItemMovement::where('ref_type', 'order')
+            ->where('ref_id', $order->id)
+            ->whereIn('movement_type', ['reserve', 'release'])
+            ->selectRaw('item_id, product_id, sum(reserved_delta) as total')
+            ->groupBy('item_id', 'product_id')
+            ->get();
+
+        foreach ($reservedRows as $row) {
+            $key = $row->item_id !== null ? 'i'.$row->item_id : 'p'.$row->product_id;
+            $entityReserved[$key] = (float) $row->total;
+        }
+
+        $reservedThisRun = [];
 
         foreach ($components as $component) {
             // Process pending, under-covered 'partial', AND previously 'released'
@@ -620,23 +704,30 @@ class InventoryEngine
                 continue;
             }
 
-            $entity = $this->entityFor($component, $entities);
-
-            if (! $entity) {
+            // A partially returned or already-confirmed line must not absorb
+            // fresh reservation demand intended for a newly added line.
+            if ((float) $component->confirmed_quantity > 0 || (float) $component->returned_quantity > 0) {
                 continue;
             }
 
+            $entity = $this->entityFor($component, $entities);
+
+            if (! $entity) {
+                $missing[] = $component->id;
+
+                continue;
+            }
+
+            $key = $this->entityKey($component);
             $wanted = (float) $component->total_quantity;
-
-            // The ledger is the source of truth for what THIS order has already
-            // reserved for the entity, taking into account both reserve and release.
-            $already = (float) ItemMovement::where('ref_type', 'order')
-                ->where('ref_id', $order->id)
-                ->whereIn('movement_type', ['reserve', 'release'])
-                ->where($entity instanceof Item ? 'item_id' : 'product_id', $entity->id)
-                ->sum('reserved_delta');
-
-            $toReserve = round($wanted - $already, 4);
+            $already = (float) $component->reserved_quantity;
+            $remaining = round(
+                ($entityDemand[$key] ?? $wanted)
+                - ($entityReserved[$key] ?? 0.0)
+                - ($reservedThisRun[$key] ?? 0.0),
+                4
+            );
+            $toReserve = round(min($wanted - $already, $remaining), 4);
 
             if ($toReserve <= 0) {
                 continue;
@@ -659,6 +750,20 @@ class InventoryEngine
             $this->ledger($order, $entity, $component, 'reserve', 0, $toReserve);
 
             $this->collectEntityId($entity, $itemIds, $productIds);
+            $reservedThisRun[$key] = round(($reservedThisRun[$key] ?? 0.0) + $toReserve, 4);
+            $touched++;
+        }
+
+        if ($missing !== []) {
+            // Never report a clean reservation when a component's stockable row
+            // could not be loaded (soft-deleted, wrong tenant, or deleted row).
+            $order->sync_status = 'error';
+        }
+
+        if ($touched === 0 && $missing !== []) {
+            $order->save();
+
+            return [[], []];
         }
 
         $hasPartial = $order->components()
@@ -687,32 +792,53 @@ class InventoryEngine
         $entities = $this->lockEntities($components);
         $itemIds = [];
         $productIds = [];
+        $missing = [];
+        $touched = 0;
         $allowNegative = (bool) $this->settings->get($order->organization_id, 'allow_negative_stock', false);
+
+        $componentCounts = $components->groupBy(fn (OrderItemComponent $component) => $this->entityKey($component))->map->count();
+        $confirmedCounts = [];
+
+        $confirmedRows = ItemMovement::where('ref_type', 'order')
+            ->where('ref_id', $order->id)
+            ->where('movement_type', 'confirm')
+            ->selectRaw('item_id, product_id, count(*) as total')
+            ->groupBy('item_id', 'product_id')
+            ->get();
+
+        foreach ($confirmedRows as $row) {
+            $key = $row->item_id !== null ? 'i'.$row->item_id : 'p'.$row->product_id;
+            $confirmedCounts[$key] = (int) $row->total;
+        }
+
+        $confirmedThisRun = [];
 
         foreach ($components as $component) {
             if (! in_array($component->status, ['pending', 'reserved', 'partial', 'released'], true)) {
                 continue;
             }
 
-            $entity = $this->entityFor($component, $entities);
-
-            if (! $entity) {
+            // A partially returned or already-confirmed line must not be
+            // deducted a second time.
+            if ((float) $component->confirmed_quantity > 0 || (float) $component->returned_quantity > 0) {
                 continue;
             }
 
-            // Idempotency: the ledger is the source of truth for whether THIS
-            // order already confirmed THIS entity. A re-processed webhook, a
-            // force re-sync with a fresh event id, or a stale duplicate event
-            // must never deduct the same goods twice — only the component cache
-            // (or a recipe/mapping change) makes them look unconfirmed again.
-            // Same pattern as reserve(), which consults the ledger too.
-            $alreadyConfirmed = ItemMovement::where('ref_type', 'order')
-                ->where('ref_id', $order->id)
-                ->where('movement_type', 'confirm')
-                ->where($entity instanceof Item ? 'item_id' : 'product_id', $entity->id)
-                ->exists();
+            $entity = $this->entityFor($component, $entities);
 
-            if ($alreadyConfirmed) {
+            if (! $entity) {
+                $missing[] = $component->id;
+
+                continue;
+            }
+
+            $key = $this->entityKey($component);
+            $alreadyConfirmed = ($confirmedCounts[$key] ?? 0) + ($confirmedThisRun[$key] ?? 0);
+
+            // If component rows were deleted and re-materialized, the ledger
+            // proves this order already confirmed these lines — do not deduct
+            // again. Counting per entity still lets a second order line confirm.
+            if ($alreadyConfirmed >= ($componentCounts[$key] ?? 1)) {
                 continue;
             }
 
@@ -748,8 +874,23 @@ class InventoryEngine
             $this->ledger($order, $entity, $component, 'confirm', -$toConfirm, -$previouslyReserved);
 
             $this->collectEntityId($entity, $itemIds, $productIds);
+            $confirmedThisRun[$key] = ($confirmedThisRun[$key] ?? 0) + 1;
+            $touched++;
         }
 
+        if ($missing !== []) {
+            $order->sync_status = 'error';
+        }
+
+        if ($touched === 0 && $missing !== []) {
+            $order->save();
+
+            return [[], []];
+        }
+
+        // Missing components are flagged through sync_status=error; the order
+        // itself is still confirmed so a later cancellation restocks what was
+        // actually deducted instead of taking the release path.
         $order->reservation_state = 'confirmed';
         $order->confirmed_at = $this->eventTimeOrNow();
         $order->save();
@@ -999,6 +1140,13 @@ class InventoryEngine
         }
 
         return null;
+    }
+
+    private function entityKey(OrderItemComponent $component): string
+    {
+        return $component->item_id !== null
+            ? 'i'.$component->item_id
+            : 'p'.$component->component_product_id;
     }
 
     /**

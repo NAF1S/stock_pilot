@@ -90,6 +90,7 @@ class ProcessWebhookEvent implements ShouldQueue
                 );
 
                 $event->status = $result['action'] === 'noop' ? 'noop' : 'processed';
+                $event->processing_error = $result['warning'] ?? null;
             } elseif (in_array($event->event_type, ['product.sync', 'product.delete'], true)) {
                 app(ProductSyncProcessor::class)->syncProduct(
                     $body['product'] ?? $body,

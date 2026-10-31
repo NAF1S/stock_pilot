@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -135,6 +136,206 @@ class SettingTest extends TestCase
             ->assertJsonPath('organization.currency', 'GBP')
             ->assertJsonPath('settings.allow_negative_stock', false)
             ->assertJsonPath('settings.warning_cooldown_hours', 48);
+    }
+
+    public function test_status_map_with_unknown_status_is_rejected_and_not_persisted(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        // "confimed" is the typo found in the live org: it matches no order, so
+        // every order carrying it became a silent no-op.
+        $response = $this->putJson('/api/settings', [
+            'name' => 'Should Not Persist',
+            'status_map' => [
+                'reserve' => ['pending', 'confimed'],
+                'confirm' => ['completed'],
+                'release' => ['cancelled'],
+                'return' => ['refunded'],
+            ],
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['status_map']);
+
+        $message = $response->json('errors.status_map.0');
+        $this->assertIsString($message);
+        $this->assertStringContainsString('confimed', $message);
+        // The message must tell the user what they may use instead.
+        $this->assertStringContainsString('on-hold', $message);
+        $this->assertStringContainsString('completed', $message);
+
+        // Nothing was written — neither the map nor the sibling org fields.
+        $this->assertDatabaseMissing('sp_settings', [
+            'organization_id' => $this->org->id,
+            'key' => 'status_map',
+        ]);
+        $this->assertNull(app(SettingService::class)->get($this->org->id, 'status_map'));
+        $this->assertDatabaseMissing('sp_organizations', [
+            'id' => $this->org->id,
+            'name' => 'Should Not Persist',
+        ]);
+    }
+
+    public function test_status_map_rejects_a_status_listed_in_two_actions(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->putJson('/api/settings', [
+            'status_map' => [
+                'reserve' => ['pending', 'processing'],
+                'confirm' => ['processing', 'completed'],
+                'release' => ['cancelled'],
+                'return' => ['refunded'],
+            ],
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['status_map']);
+
+        $message = $response->json('errors.status_map.0');
+        $this->assertIsString($message);
+        $this->assertStringContainsString('processing', $message);
+        $this->assertStringContainsString('reserve', $message);
+        $this->assertStringContainsString('confirm', $message);
+
+        $this->assertDatabaseMissing('sp_settings', [
+            'organization_id' => $this->org->id,
+            'key' => 'status_map',
+        ]);
+    }
+
+    public function test_status_map_rejects_an_unknown_action_key(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->putJson('/api/settings', [
+            'status_map' => [
+                'reserve' => ['pending', 'processing'],
+                'confrim' => ['completed'], // typo'd action key
+                'release' => ['cancelled'],
+                'return' => ['refunded'],
+            ],
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['status_map']);
+
+        $message = $response->json('errors.status_map.0');
+        $this->assertIsString($message);
+        $this->assertStringContainsString('confrim', $message);
+        $this->assertStringContainsString('reserve, confirm, release, return', $message);
+
+        $this->assertDatabaseMissing('sp_settings', [
+            'organization_id' => $this->org->id,
+            'key' => 'status_map',
+        ]);
+    }
+
+    public function test_status_map_rejects_empty_reserve_and_confirm_lists(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->putJson('/api/settings', [
+            'status_map' => [
+                'reserve' => [],
+                'confirm' => [],
+                'release' => ['cancelled'],
+                'return' => ['refunded'],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['status_map.reserve', 'status_map.confirm']);
+
+        $this->assertDatabaseMissing('sp_settings', [
+            'organization_id' => $this->org->id,
+            'key' => 'status_map',
+        ]);
+    }
+
+    public function test_status_map_is_normalized_before_it_is_saved(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->putJson('/api/settings', [
+            'status_map' => [
+                'reserve' => [' PENDING ', 'pending', 'Processing', ''],
+                'confirm' => [' Completed', 'completed', '   '],
+                'release' => ['Cancelled '],
+                'return' => ['Refunded', 'refunded'],
+            ],
+        ]);
+
+        $expected = [
+            'reserve' => ['pending', 'processing'],
+            'confirm' => ['completed'],
+            'release' => ['cancelled'],
+            'return' => ['refunded'],
+        ];
+
+        $response->assertOk()
+            ->assertJsonPath('settings.status_map', $expected);
+
+        $this->assertSame($expected, app(SettingService::class)->get($this->org->id, 'status_map'));
+    }
+
+    public function test_status_map_accepts_statuses_observed_in_orders_and_webhook_events(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        // A plugin-specific status this org has actually received is legitimate
+        // even though it is not in the built-in list.
+        DB::table('sp_orders')->insert([
+            'organization_id' => $this->org->id,
+            'woocommerce_id' => 9001,
+            'status' => 'ready-to-ship',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $storeId = DB::table('sp_store_connections')->insertGetId([
+            'organization_id' => $this->org->id,
+            'name' => 'Main store',
+            'store_url' => 'https://shop.example.com',
+            'api_key_hash' => hash('sha256', 'sp_test_key'),
+            'api_secret_encrypted' => 'irrelevant-for-this-test',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('sp_webhook_events')->insert([
+            'organization_id' => $this->org->id,
+            'store_id' => $storeId,
+            'event_id' => 'evt-1',
+            'nonce' => 'nonce-1',
+            'event_type' => 'order.sync',
+            'wc_status' => 'packing',
+            'payload' => '{}',
+            'status' => 'processed',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->putJson('/api/settings', [
+            'status_map' => [
+                'reserve' => ['pending', 'ready-to-ship'],
+                'confirm' => ['completed'],
+                'release' => ['cancelled', 'packing'],
+                'return' => ['refunded'],
+            ],
+        ])->assertOk()
+            ->assertJsonPath('settings.status_map.reserve', ['pending', 'ready-to-ship'])
+            ->assertJsonPath('settings.status_map.release', ['cancelled', 'packing']);
+
+        // A status nobody has ever seen is still rejected.
+        $response = $this->putJson('/api/settings', [
+            'status_map' => [
+                'reserve' => ['pending'],
+                'confirm' => ['completed'],
+                'release' => ['cancelled'],
+                'return' => ['refunded', 'not-a-real-status'],
+            ],
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['status_map']);
+        $this->assertStringContainsString('not-a-real-status', $response->json('errors.status_map.0'));
     }
 
     public function test_staff_cannot_update_settings(): void

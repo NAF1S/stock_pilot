@@ -48,6 +48,10 @@ class OrderController extends Controller
             $query->where('sync_status', 'unmapped');
         }
 
+        if ($request->boolean('error')) {
+            $query->where('sync_status', 'error');
+        }
+
         if ($request->filled('from')) {
             $query->where('order_created_at', '>=', $request->from);
         }
@@ -247,6 +251,7 @@ class OrderController extends Controller
         // This path calls the engine directly, so persist the event outcome;
         // otherwise every manual reprocess leaves a misleading `received` row.
         $event->status = ($result['action'] ?? null) === 'noop' ? 'noop' : 'processed';
+        $event->processing_error = $result['warning'] ?? null;
         $event->processed_at = now();
         $event->save();
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\ProcessWebhookEvent;
 use App\Mail\LowStockAlert;
 use App\Models\BomLine;
 use App\Models\Item;
@@ -14,6 +15,7 @@ use App\Models\StoreConnection;
 use App\Models\WebhookEvent;
 use App\Services\AssetValuation;
 use App\Services\InventoryEngine;
+use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -268,6 +270,199 @@ test('does not double-reserve when on-hold then confirmed', function () {
 
     expect($result['action'])->toBe('reserve'); // idempotent catch-up, not double-reserve
     expect($items['Belt']->fresh()->quantity_reserved)->toBe(2.0); // not 4
+});
+
+test('an unknown status is reported instead of silently processing', function () {
+    [$org, $store, $items] = engineFixture();
+    [$data, $event] = engineOrder(baseOrder(1, 'confimed', 2), $org, $store, 'e1');
+
+    $result = app(InventoryEngine::class)->processOrderEvent($data, $store, $event);
+
+    expect($result['action'])->toBe('noop');
+    expect($result['warning'])->toContain('confimed');
+
+    $order = Order::where('woocommerce_id', 1)->first();
+    expect($order->sync_status)->toBe('error');
+    expect($order->reservation_state)->toBe('none');
+    expect($order->components()->count())->toBe(0);
+    expect($items['Belt']->fresh()->quantity_reserved)->toBe(0.0);
+});
+
+test('the webhook job stores the unmapped-status warning on the event', function () {
+    [$org, $store] = engineFixture();
+    [, $event] = engineOrder(baseOrder(1, 'confimed', 1), $org, $store, 'job-e1');
+
+    (new ProcessWebhookEvent($event->id))->handle();
+
+    $event->refresh();
+    expect($event->status)->toBe('noop');
+    expect($event->processing_error)->toContain('confimed');
+    expect(Order::where('woocommerce_id', 1)->first()->sync_status)->toBe('error');
+});
+
+test('a valid event clears an earlier unmapped-status error', function () {
+    [$org, $store, $items] = engineFixture();
+    $settings = app(SettingService::class);
+    $settings->set($org->id, 'status_map', [
+        'reserve' => ['pending'],
+        'confirm' => ['completed'],
+        'release' => ['cancelled'],
+        'return' => ['refunded'],
+    ]);
+
+    [$d1, $e1] = engineOrder(baseOrder(1, 'confirmed', 2), $org, $store, 'e1');
+    $first = app(InventoryEngine::class)->processOrderEvent($d1, $store, $e1);
+
+    expect($first['action'])->toBe('noop');
+    expect(Order::where('woocommerce_id', 1)->first()->sync_status)->toBe('error');
+
+    $settings->set($org->id, 'status_map', [
+        'reserve' => ['pending', 'confirmed'],
+        'confirm' => ['completed'],
+        'release' => ['cancelled'],
+        'return' => ['refunded'],
+    ]);
+
+    [$d2, $e2] = engineOrder(baseOrder(1, 'confirmed', 2), $org, $store, 'e2');
+    $second = app(InventoryEngine::class)->processOrderEvent($d2, $store, $e2);
+
+    expect($second['action'])->toBe('reserve');
+    expect(Order::where('woocommerce_id', 1)->first()->sync_status)->toBe('processed');
+    expect($items['Belt']->fresh()->quantity_reserved)->toBe(2.0);
+});
+
+test('reserves every line when two lines share the same recipe items', function () {
+    [$org, $store, $items, $product] = engineFixture();
+    $data = baseOrder(1, 'processing', 1);
+    $data['items'][] = [
+        'id' => 2,
+        'product_id' => 1,
+        'name' => 'Belt Kit',
+        'sku' => 'KIT-1',
+        'quantity' => 1,
+        'price' => 100,
+        'line_total' => 100,
+    ];
+    [$d, $e] = engineOrder($data, $org, $store, 'e1');
+
+    $result = app(InventoryEngine::class)->processOrderEvent($d, $store, $e);
+
+    expect($result['action'])->toBe('reserve');
+    expect($items['Belt']->fresh()->quantity_reserved)->toBe(2.0);
+    expect($items['Card']->fresh()->quantity_reserved)->toBe(4.0);
+    expect($product->fresh()->quantity_reserved)->toBe(2.0);
+    expect(Order::where('woocommerce_id', 1)->first()->components()->count())->toBe(8);
+});
+
+test('confirms every line when two lines share the same recipe items', function () {
+    [$org, $store, $items, $product] = engineFixture();
+    $data = baseOrder(1, 'processing', 1);
+    $data['items'][] = [
+        'id' => 2,
+        'product_id' => 1,
+        'name' => 'Belt Kit',
+        'sku' => 'KIT-1',
+        'quantity' => 1,
+        'price' => 100,
+        'line_total' => 100,
+    ];
+    [$d1, $e1] = engineOrder($data, $org, $store, 'e1');
+    app(InventoryEngine::class)->processOrderEvent($d1, $store, $e1);
+
+    $data['status'] = 'completed';
+    [$d2, $e2] = engineOrder($data, $org, $store, 'e2');
+    $result = app(InventoryEngine::class)->processOrderEvent($d2, $store, $e2);
+
+    expect($result['action'])->toBe('confirm');
+    expect($items['Belt']->fresh()->quantity_on_hand)->toBe(48.0);
+    expect($items['Card']->fresh()->quantity_on_hand)->toBe(496.0);
+    expect($product->fresh()->quantity_on_hand)->toBe(3.0);
+    expect(OrderItemComponent::where('order_id', Order::where('woocommerce_id', 1)->value('id'))
+        ->where('status', 'confirmed')->count())->toBe(8);
+});
+
+test('a missing stockable row is reported instead of claiming a clean reservation', function () {
+    [$org, $store, $items] = engineFixture();
+    [$d1, $e1] = engineOrder(baseOrder(1, 'processing', 1), $org, $store, 'e1');
+    app(InventoryEngine::class)->processOrderEvent($d1, $store, $e1);
+
+    $order = Order::where('woocommerce_id', 1)->first();
+    $order->components()
+        ->where('item_id', $items['Sticker']->id)
+        ->first()
+        ->update(['status' => 'pending', 'reserved_quantity' => 0]);
+
+    $items['Sticker']->delete();
+
+    [$d2, $e2] = engineOrder(baseOrder(1, 'processing', 1), $org, $store, 'e2');
+    $result = app(InventoryEngine::class)->processOrderEvent($d2, $store, $e2);
+
+    expect($result['action'])->toBe('reserve');
+    expect($result['warning'])->toContain('could not be resolved');
+    expect($order->fresh()->sync_status)->toBe('error');
+    expect($order->fresh()->reservation_state)->toBe('reserved');
+});
+
+test('a partially returned line does not absorb reservation for a new line', function () {
+    [$org, $store, $items, $product] = engineFixture();
+
+    [$d1, $e1] = engineOrder(baseOrder(1, 'processing', 1), $org, $store, 'e1');
+    app(InventoryEngine::class)->processOrderEvent($d1, $store, $e1);
+    [$d2, $e2] = engineOrder(baseOrder(1, 'completed', 1), $org, $store, 'e2');
+    app(InventoryEngine::class)->processOrderEvent($d2, $store, $e2);
+
+    $returned = baseOrder(1, 'returned-with-charge', 1);
+    $returned['return_charge'] = 50;
+    $returned['refunds'] = [[
+        'id' => 1,
+        'reason' => 'partial',
+        'total' => 50,
+        'items' => [['item_id' => 1, 'quantity' => 0.5, 'total' => 50]],
+    ]];
+    [$d3, $e3] = engineOrder($returned, $org, $store, 'e3');
+    app(InventoryEngine::class)->processOrderEvent($d3, $store, $e3);
+
+    $data = baseOrder(1, 'processing', 1);
+    $data['items'][] = [
+        'id' => 2,
+        'product_id' => 1,
+        'name' => 'Belt Kit',
+        'sku' => 'KIT-1',
+        'quantity' => 1,
+        'price' => 100,
+        'line_total' => 100,
+    ];
+    [$d4, $e4] = engineOrder($data, $org, $store, 'e4');
+    $reserveResult = app(InventoryEngine::class)->processOrderEvent($d4, $store, $e4);
+
+    expect($reserveResult['action'])->toBe('reserve');
+
+    $data['status'] = 'completed';
+    [$d5, $e5] = engineOrder($data, $org, $store, 'e5');
+    $confirmResult = app(InventoryEngine::class)->processOrderEvent($d5, $store, $e5);
+
+    expect($confirmResult['action'])->toBe('confirm');
+    expect($confirmResult['reservation_state'])->toBe('confirmed');
+    expect($items['Belt']->fresh()->quantity_on_hand)->toBe(48.5); // 50 -1 +0.5 -1
+    expect($items['Card']->fresh()->quantity_on_hand)->toBe(497.0); // 500 -2 +1 -2
+    expect($product->fresh()->quantity_on_hand)->toBe(3.5); // 5 -1 +0.5 -1
+    expect(Order::where('woocommerce_id', 1)->first()->components()->get()->groupBy('order_item_id'))->toHaveCount(2);
+});
+
+test('a status in both reserve and confirm resolves to confirm', function () {
+    [$org, $store, $items] = engineFixture();
+    app(SettingService::class)->set($org->id, 'status_map', [
+        'reserve' => ['processing'],
+        'confirm' => ['processing', 'completed'],
+        'release' => ['cancelled'],
+        'return' => ['refunded'],
+    ]);
+
+    [$data, $event] = engineOrder(baseOrder(1, 'processing', 1), $org, $store, 'e1');
+    $result = app(InventoryEngine::class)->processOrderEvent($data, $store, $event);
+
+    expect($result['action'])->toBe('confirm');
+    expect($items['Belt']->fresh()->quantity_on_hand)->toBe(49.0);
 });
 
 test('reprocess reserves an order stuck at none after a status-map change', function () {
