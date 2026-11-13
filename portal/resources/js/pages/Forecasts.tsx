@@ -104,27 +104,27 @@ export default function Forecasts() {
 
     const { data: summary, isLoading: loadingSummary } = useQuery<SummaryData>({
         queryKey: ['forecast-summary'],
-        queryFn: () => apiGet('/api/forecasts/summary'),
+        queryFn: () => apiGet('/forecasts/summary'),
     });
 
     const { data: risksData, isLoading: loadingRisks } = useQuery<{ risks: RiskItem[] }>({
         queryKey: ['forecast-risks'],
-        queryFn: () => apiGet('/api/forecasts/risks'),
+        queryFn: () => apiGet('/forecasts/risks'),
     });
 
     const { data: recsData, isLoading: loadingRecs } = useQuery<{ recommendations: RecommendationItem[] }>({
         queryKey: ['forecast-recs'],
-        queryFn: () => apiGet('/api/forecasts/recommendations?status=pending'),
+        queryFn: () => apiGet('/forecasts/recommendations?status=pending'),
     });
 
     const { data: forecastsData, isLoading: loadingForecasts } = useQuery<{ entities: ForecastEntity[]; count: number }>({
         queryKey: ['forecast-index'],
-        queryFn: () => apiGet('/api/forecasts/index'),
+        queryFn: () => apiGet('/forecasts/index'),
     });
 
     const { data: pipeline } = useQuery<PipelineHealth>({
         queryKey: ['forecast-pipeline'],
-        queryFn: () => apiGet('/api/forecasts/pipeline'),
+        queryFn: () => apiGet('/forecasts/pipeline'),
         refetchInterval: 60000,
     });
 
@@ -132,14 +132,14 @@ export default function Forecasts() {
         queryKey: ['forecast-series', selected?.entity_type, selected?.entity_id],
         queryFn: () =>
             apiGet(
-                `/api/forecasts/demand?entity_type=${selected?.entity_type}&entity_id=${selected?.entity_id}`
+                `/forecasts/demand?entity_type=${selected?.entity_type}&entity_id=${selected?.entity_id}`
             ),
         enabled: selected !== null,
     });
 
     const actionMutation = useMutation({
         mutationFn: ({ id, status }: { id: number; status: string }) =>
-            apiPost(`/api/forecasts/recommendations/${id}/action`, { status }),
+            apiPost(`/forecasts/recommendations/${id}/action`, { status }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['forecast-recs'] });
             queryClient.invalidateQueries({ queryKey: ['forecast-summary'] });
@@ -147,7 +147,7 @@ export default function Forecasts() {
     });
 
     const computeMutation = useMutation({
-        mutationFn: () => apiPost<{ run_id: number; status: string }>('/api/forecasts/compute'),
+        mutationFn: () => apiPost<{ run_id: number; status: string }>('/forecasts/compute'),
         onSuccess: (result) => {
             setComputeError(null);
             setComputeRun({
@@ -170,7 +170,7 @@ export default function Forecasts() {
 
         const poll = async () => {
             try {
-                const latest = await apiGet<ComputeRun>(`/api/forecasts/compute/${computeRun.id}`);
+                const latest = await apiGet<ComputeRun>(`/forecasts/compute/${computeRun.id}`);
                 if (cancelled) return;
 
                 setComputeRun(latest);
