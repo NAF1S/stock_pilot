@@ -175,6 +175,83 @@ class ForecastController extends Controller
         ]);
     }
 
+    /**
+     * Pipeline freshness: how current the features, forecasts and risks are.
+     */
+    public function pipeline(Request $request): JsonResponse
+    {
+        $org = $request->user()->organization_id;
+
+        $features = \Illuminate\Support\Facades\DB::table('ml_daily_features')
+            ->where('organization_id', $org)
+            ->selectRaw('max(feature_date) as last_feature_date, count(*) as feature_rows')
+            ->first();
+
+        $forecasts = \Illuminate\Support\Facades\DB::table('sp_demand_forecasts')
+            ->where('organization_id', $org)
+            ->where('model_version', 'not like', 'baseline-%')
+            ->selectRaw(
+                'max(updated_at) as last_forecast_at, count(*) as forecast_rows,
+                 count(*) filter (where forecast_date < current_date) as past_rows,
+                 min(forecast_date) as first_forecast_date, max(forecast_date) as last_forecast_date'
+            )
+            ->first();
+
+        $risks = \Illuminate\Support\Facades\DB::table('sp_stockout_risks')
+            ->where('organization_id', $org)
+            ->selectRaw('max(calculated_at) as last_risk_at, count(*) as risk_rows')
+            ->first();
+
+        $featureLag = $features?->last_feature_date
+            ? (int) \Illuminate\Support\Carbon::parse($features->last_feature_date)->startOfDay()
+                ->diffInDays(now()->startOfDay(), false)
+            : null;
+        $forecastAge = $forecasts?->last_forecast_at
+            ? round(\Illuminate\Support\Carbon::parse($forecasts->last_forecast_at)->diffInMinutes(now()) / 60, 1)
+            : null;
+        $riskAge = $risks?->last_risk_at
+            ? round(\Illuminate\Support\Carbon::parse($risks->last_risk_at)->diffInMinutes(now()) / 60, 1)
+            : null;
+
+        $problems = [];
+        if ($featureLag === null) {
+            $problems[] = 'no_feature_rows';
+        } elseif ($featureLag > 2) {
+            $problems[] = "features_stale_{$featureLag}d";
+        }
+        if ($forecastAge === null) {
+            $problems[] = 'no_forecasts';
+        } elseif ($forecastAge > 36) {
+            $problems[] = "forecasts_stale_{$forecastAge}h";
+        }
+        if ($riskAge === null) {
+            $problems[] = 'no_risks';
+        } elseif ($riskAge > 36) {
+            $problems[] = "risks_stale_{$riskAge}h";
+        }
+        if (($forecasts?->past_rows ?? 0) > 0) {
+            $problems[] = "past_forecast_rows_{$forecasts->past_rows}";
+        }
+
+        return response()->json([
+            'status' => $problems ? 'stale' : 'ok',
+            'problems' => $problems,
+            'last_feature_date' => $features?->last_feature_date,
+            'feature_lag_days' => $featureLag,
+            'feature_rows' => (int) ($features?->feature_rows ?? 0),
+            'last_forecast_at' => $forecasts?->last_forecast_at,
+            'forecast_age_hours' => $forecastAge,
+            'forecast_rows' => (int) ($forecasts?->forecast_rows ?? 0),
+            'past_forecast_rows' => (int) ($forecasts?->past_rows ?? 0),
+            'first_forecast_date' => $forecasts?->first_forecast_date,
+            'last_forecast_date' => $forecasts?->last_forecast_date,
+            'last_risk_at' => $risks?->last_risk_at,
+            'risk_age_hours' => $riskAge,
+            'risk_rows' => (int) ($risks?->risk_rows ?? 0),
+            'checked_at' => now()->toIso8601String(),
+        ]);
+    }
+
     private function enrichEntity($model): array
     {
         $data = $model->toArray();
