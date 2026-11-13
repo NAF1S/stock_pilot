@@ -102,21 +102,90 @@ class ForecastController extends Controller
     }
 
     /**
+     * Current demand forecasts, grouped per entity for the forecast tab.
+     *
+     * Only the live horizon is returned: legacy `baseline-v1` rows from the
+     * prototype worker and any forecast dated before today are excluded, so a
+     * superseded model cannot appear alongside the current one.
+     */
+    public function forecastIndex(Request $request): JsonResponse
+    {
+        $rows = \Illuminate\Support\Facades\DB::table('sp_demand_forecasts')
+            ->where('organization_id', $request->user()->organization_id)
+            ->where('model_version', 'not like', 'baseline-%')
+            ->where('forecast_date', '>=', now()->toDateString())
+            ->selectRaw(
+                'entity_type, entity_id, model_version,
+                 count(*) as forecast_days,
+                 sum(predicted_quantity) as total_quantity,
+                 avg(predicted_quantity) as daily_average,
+                 min(forecast_date) as first_forecast_date,
+                 max(forecast_date) as last_forecast_date,
+                 min(lower_bound) as lowest_bound,
+                 max(upper_bound) as highest_bound'
+            )
+            ->groupBy('entity_type', 'entity_id', 'model_version')
+            ->orderByDesc('total_quantity')
+            ->get();
+
+        $entities = $rows->map(function ($row) {
+            $row = (array) $row;
+
+            if ($row['entity_type'] === 'item') {
+                $entity = Item::find($row['entity_id']);
+                $row['entity_name'] = $entity?->name ?? "Item #{$row['entity_id']}";
+                $row['entity_sku'] = $entity?->sku;
+                $row['entity_unit'] = $entity?->unit ?? 'pcs';
+            } else {
+                $entity = Product::find($row['entity_id']);
+                $row['entity_name'] = $entity?->name ?? "Product #{$row['entity_id']}";
+                $row['entity_sku'] = $entity?->sku;
+                $row['entity_unit'] = 'units';
+            }
+
+            return $row;
+        });
+
+        return response()->json([
+            'entities' => $entities,
+            'count' => $entities->count(),
+        ]);
+    }
+
+    /**
      * Demand forecast series for an entity over time.
+     *
+     * Defaults to the live horizon so the response is the model currently in
+     * production rather than a mix of every version ever written.
      */
     public function demand(Request $request): JsonResponse
     {
         $request->validate([
             'entity_type' => 'required|in:item,product',
             'entity_id' => 'required|integer',
+            'model_version' => 'nullable|string',
+            'include_past' => 'nullable|boolean',
         ]);
 
-        $forecasts = DemandForecast::where('entity_type', $request->input('entity_type'))
-            ->where('entity_id', $request->input('entity_id'))
-            ->orderBy('forecast_date', 'asc')
-            ->get();
+        $query = DemandForecast::where('entity_type', $request->input('entity_type'))
+            ->where('entity_id', $request->input('entity_id'));
 
-        return response()->json(['forecasts' => $forecasts]);
+        if ($version = $request->input('model_version')) {
+            $query->where('model_version', $version);
+        } else {
+            $query->where('model_version', 'not like', 'baseline-%');
+        }
+
+        if (! $request->boolean('include_past')) {
+            $query->where('forecast_date', '>=', now()->toDateString());
+        }
+
+        $forecasts = $query->orderBy('forecast_date', 'asc')->get();
+
+        return response()->json([
+            'forecasts' => $forecasts,
+            'count' => $forecasts->count(),
+        ]);
     }
 
     /**

@@ -172,6 +172,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('compute', [ForecastController::class, 'compute'])->middleware('role:manager,admin');
         Route::get('compute/{run}', [ForecastController::class, 'computeStatus'])->middleware('role:manager,admin');
         Route::get('pipeline', [ForecastController::class, 'pipeline']);
+        Route::get('index', [ForecastController::class, 'forecastIndex']);
         Route::get('demand', [ForecastController::class, 'demand']);
     });
 });

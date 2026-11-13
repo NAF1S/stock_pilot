@@ -58,11 +58,49 @@ interface ComputeRun {
     finished_at?: string | null;
 }
 
+interface ForecastEntity {
+    entity_type: 'item' | 'product';
+    entity_id: number;
+    entity_name: string;
+    entity_sku?: string | null;
+    entity_unit?: string;
+    model_version: string;
+    forecast_days: number;
+    total_quantity: string | number;
+    daily_average: string | number;
+    first_forecast_date: string;
+    last_forecast_date: string;
+    lowest_bound?: string | number | null;
+    highest_bound?: string | number | null;
+}
+
+interface ForecastPoint {
+    id: number;
+    forecast_date: string;
+    predicted_quantity: number;
+    lower_bound: number | null;
+    upper_bound: number | null;
+    model_version: string;
+}
+
+interface PipelineHealth {
+    status: 'ok' | 'stale';
+    problems: string[];
+    last_feature_date: string | null;
+    feature_lag_days: number | null;
+    forecast_rows: number;
+    past_forecast_rows: number;
+    first_forecast_date: string | null;
+    last_forecast_date: string | null;
+    forecast_age_hours: number | null;
+}
+
 export default function Forecasts() {
     const queryClient = useQueryClient();
-    const [activeTab, setActiveTab] = useState<'risks' | 'recommendations' | 'engine'>('risks');
+    const [activeTab, setActiveTab] = useState<'forecasts' | 'risks' | 'recommendations' | 'engine'>('forecasts');
     const [computeRun, setComputeRun] = useState<ComputeRun | null>(null);
     const [computeError, setComputeError] = useState<string | null>(null);
+    const [selected, setSelected] = useState<{ entity_type: string; entity_id: number; name: string } | null>(null);
 
     const { data: summary, isLoading: loadingSummary } = useQuery<SummaryData>({
         queryKey: ['forecast-summary'],
@@ -77,6 +115,26 @@ export default function Forecasts() {
     const { data: recsData, isLoading: loadingRecs } = useQuery<{ recommendations: RecommendationItem[] }>({
         queryKey: ['forecast-recs'],
         queryFn: () => apiGet('/api/forecasts/recommendations?status=pending'),
+    });
+
+    const { data: forecastsData, isLoading: loadingForecasts } = useQuery<{ entities: ForecastEntity[]; count: number }>({
+        queryKey: ['forecast-index'],
+        queryFn: () => apiGet('/api/forecasts/index'),
+    });
+
+    const { data: pipeline } = useQuery<PipelineHealth>({
+        queryKey: ['forecast-pipeline'],
+        queryFn: () => apiGet('/api/forecasts/pipeline'),
+        refetchInterval: 60000,
+    });
+
+    const { data: seriesData, isLoading: loadingSeries } = useQuery<{ forecasts: ForecastPoint[]; count: number }>({
+        queryKey: ['forecast-series', selected?.entity_type, selected?.entity_id],
+        queryFn: () =>
+            apiGet(
+                `/api/forecasts/demand?entity_type=${selected?.entity_type}&entity_id=${selected?.entity_id}`
+            ),
+        enabled: selected !== null,
     });
 
     const actionMutation = useMutation({
@@ -186,6 +244,14 @@ export default function Forecasts() {
                 </div>
             )}
 
+            {pipeline && pipeline.status !== 'ok' && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <span className="font-medium">Forecasts may be stale.</span>{' '}
+                    {pipeline.problems.join(', ')}. Latest feature date:{' '}
+                    {pipeline.last_feature_date ?? 'none'}.
+                </div>
+            )}
+
             {/* Stat Cards */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
@@ -218,6 +284,16 @@ export default function Forecasts() {
             <div className="border-b border-gray-200">
                 <nav className="-mb-px flex space-x-6">
                     <button
+                        onClick={() => setActiveTab('forecasts')}
+                        className={`border-b-2 pb-3 text-sm font-medium transition ${
+                            activeTab === 'forecasts'
+                                ? 'border-indigo-600 text-indigo-600'
+                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                        }`}
+                    >
+                        Demand Forecasts ({forecastsData?.count ?? 0})
+                    </button>
+                    <button
                         onClick={() => setActiveTab('risks')}
                         className={`border-b-2 pb-3 text-sm font-medium transition ${
                             activeTab === 'risks'
@@ -249,6 +325,118 @@ export default function Forecasts() {
                     </button>
                 </nav>
             </div>
+
+            {/* Tab: Demand Forecasts */}
+            {activeTab === 'forecasts' && (
+                <div className="space-y-6">
+                    <Card title="Computed Demand Forecast">
+                        {loadingForecasts ? (
+                            <div className="py-12 text-center"><Spinner className="mx-auto" /></div>
+                        ) : (
+                            <Table
+                                head={['Entity', 'Type', 'Model', 'Horizon', 'Total Units', 'Daily Avg', 'Range']}
+                                empty={
+                                    !forecastsData?.entities.length ? (
+                                        <EmptyState
+                                            title="No forecasts computed yet"
+                                            hint="Press Compute now to train the models and write a forecast horizon."
+                                        />
+                                    ) : undefined
+                                }
+                            >
+                                {forecastsData?.entities.map((row) => (
+                                    <tr
+                                        key={`${row.entity_type}-${row.entity_id}-${row.model_version}`}
+                                        className="cursor-pointer hover:bg-gray-50"
+                                        onClick={() =>
+                                            setSelected({
+                                                entity_type: row.entity_type,
+                                                entity_id: row.entity_id,
+                                                name: row.entity_name,
+                                            })
+                                        }
+                                    >
+                                        <td className="px-4 py-2">
+                                            <div className="font-medium text-gray-900">{row.entity_name}</div>
+                                            {row.entity_sku && (
+                                                <div className="text-xs text-gray-400">SKU: {row.entity_sku}</div>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-2">
+                                            <span className="capitalize text-xs text-gray-500">{row.entity_type}</span>
+                                        </td>
+                                        <td className="px-4 py-2">
+                                            <span className="rounded bg-indigo-50 px-2 py-0.5 font-mono text-xs text-indigo-700">
+                                                {row.model_version}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-2 text-xs text-gray-600">
+                                            {row.forecast_days} days
+                                            <div className="text-gray-400">
+                                                {String(row.first_forecast_date).slice(0, 10)} →{' '}
+                                                {String(row.last_forecast_date).slice(0, 10)}
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-2 font-medium text-gray-900">
+                                            {Number(row.total_quantity).toFixed(1)} {row.entity_unit}
+                                        </td>
+                                        <td className="px-4 py-2 text-gray-700">
+                                            {Number(row.daily_average).toFixed(2)} / day
+                                        </td>
+                                        <td className="px-4 py-2 text-xs text-gray-500">
+                                            {row.lowest_bound != null && row.highest_bound != null
+                                                ? `${Number(row.lowest_bound).toFixed(1)} – ${Number(row.highest_bound).toFixed(1)}`
+                                                : '—'}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </Table>
+                        )}
+                    </Card>
+
+                    {selected && (
+                        <Card title={`Daily series — ${selected.name}`}>
+                            {loadingSeries ? (
+                                <div className="py-8 text-center"><Spinner className="mx-auto" /></div>
+                            ) : (
+                                <Table
+                                    head={['Date', 'Predicted', 'Lower', 'Upper', 'Model']}
+                                    empty={
+                                        <EmptyState
+                                            title="No forecast days for this entity"
+                                            hint="The model produced an empty horizon for this entity."
+                                        />
+                                    }
+                                >
+                                    {seriesData?.forecasts.map((point) => (
+                                        <tr key={point.id} className="hover:bg-gray-50">
+                                            <td className="px-4 py-2 text-gray-900">
+                                                {String(point.forecast_date).slice(0, 10)}
+                                            </td>
+                                            <td className="px-4 py-2 font-medium text-gray-900">
+                                                {Number(point.predicted_quantity).toFixed(2)}
+                                            </td>
+                                            <td className="px-4 py-2 text-gray-500">
+                                                {point.lower_bound != null
+                                                    ? Number(point.lower_bound).toFixed(2)
+                                                    : '—'}
+                                            </td>
+                                            <td className="px-4 py-2 text-gray-500">
+                                                {point.upper_bound != null
+                                                    ? Number(point.upper_bound).toFixed(2)
+                                                    : '—'}
+                                            </td>
+                                            <td className="px-4 py-2 font-mono text-xs text-indigo-700">
+                                                {point.model_version}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </Table>
+                            )}
+                        </Card>
+                    )}
+                </div>
+            )}
 
             {/* Tab: Stockout Risks */}
             {activeTab === 'risks' && (

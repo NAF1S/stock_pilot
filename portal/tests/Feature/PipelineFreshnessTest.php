@@ -160,4 +160,73 @@ class PipelineFreshnessTest extends TestCase
             ->assertJsonPath('feature_rows', 0)
             ->assertJsonPath('forecast_rows', 0);
     }
+
+    public function test_forecast_index_returns_one_row_per_entity(): void
+    {
+        $this->forecast(1, now()->addDay()->toDateString());
+        $this->forecast(1, now()->addDays(2)->toDateString());
+
+        Sanctum::actingAs($this->user);
+
+        $this->getJson('/api/forecasts/index')
+            ->assertOk()
+            ->assertJsonPath('count', 1)
+            ->assertJsonPath('entities.0.entity_id', 1)
+            ->assertJsonPath('entities.0.forecast_days', 2)
+            ->assertJsonPath('entities.0.model_version', 'prophet-v2');
+    }
+
+    public function test_forecast_index_excludes_legacy_and_past_rows(): void
+    {
+        $this->forecast(1, now()->addDay()->toDateString(), 'baseline-v1');
+        $this->forecast(2, now()->subDay()->toDateString());
+        $this->forecast(3, now()->addDay()->toDateString());
+
+        Sanctum::actingAs($this->user);
+
+        $response = $this->getJson('/api/forecasts/index')->assertOk();
+
+        $response->assertJsonPath('count', 1);
+        $response->assertJsonPath('entities.0.entity_id', 3);
+    }
+
+    public function test_demand_defaults_to_the_live_horizon(): void
+    {
+        $this->forecast(1, now()->subDay()->toDateString(), 'baseline-v1');
+        $this->forecast(1, now()->addDay()->toDateString());
+
+        Sanctum::actingAs($this->user);
+
+        $response = $this->getJson('/api/forecasts/demand?entity_type=item&entity_id=1')->assertOk();
+
+        $response->assertJsonPath('count', 1);
+        $response->assertJsonPath('forecasts.0.model_version', 'prophet-v2');
+    }
+
+    public function test_demand_can_include_past_rows_for_auditing(): void
+    {
+        $this->forecast(1, now()->subDay()->toDateString());
+        $this->forecast(1, now()->addDay()->toDateString());
+
+        Sanctum::actingAs($this->user);
+
+        $this->getJson('/api/forecasts/demand?entity_type=item&entity_id=1&include_past=1')
+            ->assertOk()
+            ->assertJsonPath('count', 2);
+    }
+
+    public function test_demand_can_target_a_specific_model_version(): void
+    {
+        $this->forecast(1, now()->addDay()->toDateString(), 'prophet-v2');
+        $this->forecast(1, now()->addDay()->toDateString(), 'lgbm-traffic-v1');
+
+        Sanctum::actingAs($this->user);
+
+        $response = $this->getJson(
+            '/api/forecasts/demand?entity_type=item&entity_id=1&model_version=lgbm-traffic-v1'
+        )->assertOk();
+
+        $response->assertJsonPath('count', 1);
+        $response->assertJsonPath('forecasts.0.model_version', 'lgbm-traffic-v1');
+    }
 }
