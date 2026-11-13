@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\RunForecastJob;
+use App\Models\ComputeRun;
 use App\Models\DemandForecast;
 use App\Models\Item;
 use App\Models\Product;
@@ -115,6 +117,62 @@ class ForecastController extends Controller
             ->get();
 
         return response()->json(['forecasts' => $forecasts]);
+    }
+
+    /**
+     * Queue a Modal training run, or return the one already in flight.
+     */
+    public function compute(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $existing = ComputeRun::where('organization_id', $user->organization_id)
+            ->whereIn('status', ['queued', 'running'])
+            ->latest('id')
+            ->first();
+
+        if ($existing) {
+            return response()->json(['run_id' => $existing->id, 'status' => $existing->status]);
+        }
+
+        $run = ComputeRun::create([
+            'organization_id' => $user->organization_id,
+            'status' => 'queued',
+            'trigger_source' => 'manual',
+            'triggered_by' => $user->id,
+        ]);
+
+        RunForecastJob::dispatch($run->id);
+
+        return response()->json(['run_id' => $run->id, 'status' => 'queued'], 202);
+    }
+
+    /**
+     * Progress for the "Compute now" button.
+     */
+    public function computeStatus(Request $request, ComputeRun $run): JsonResponse
+    {
+        abort_unless($run->organization_id === $request->user()->organization_id, 404);
+
+        $progress = max(0, min(100, (int) $run->progress_pct));
+        $elapsed = $run->started_at ? (int) max(0, $run->started_at->diffInSeconds(now())) : 0;
+        $eta = $progress > 0 && $progress < 100
+            ? (int) round($elapsed / $progress * (100 - $progress))
+            : null;
+
+        return response()->json([
+            'id' => $run->id,
+            'status' => $run->status,
+            'trigger_source' => $run->trigger_source,
+            'progress_pct' => $progress,
+            'done_entities' => (int) $run->done_entities,
+            'total_entities' => (int) $run->total_entities,
+            'eta_seconds' => $eta,
+            'error' => $run->error,
+            'run_id' => $run->run_id,
+            'started_at' => $run->started_at?->toIso8601String(),
+            'finished_at' => $run->finished_at?->toIso8601String(),
+        ]);
     }
 
     private function enrichEntity($model): array

@@ -169,6 +169,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('risks', [ForecastController::class, 'risks']);
         Route::get('recommendations', [ForecastController::class, 'recommendations']);
         Route::post('recommendations/{id}/action', [ForecastController::class, 'updateRecommendation'])->middleware('role:manager,admin');
+        Route::post('compute', [ForecastController::class, 'compute'])->middleware('role:manager,admin');
+        Route::get('compute/{run}', [ForecastController::class, 'computeStatus'])->middleware('role:manager,admin');
         Route::get('demand', [ForecastController::class, 'demand']);
     });
 });

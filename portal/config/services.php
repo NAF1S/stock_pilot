@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'modal' => [
+        'train_url' => env('MODAL_TRAIN_URL'),
+        'train_token' => env('MODAL_TRAIN_TOKEN'),
+    ],
+
 ];

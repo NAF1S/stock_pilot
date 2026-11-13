@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPost } from '../lib/api';
+import { apiGet, apiPost, errMsg } from '../lib/api';
 import { Badge, Button, Card, StatCard, Spinner, Table, EmptyState } from '../components/ui';
 
 interface SummaryData {
@@ -44,9 +44,25 @@ interface RecommendationItem {
     created_at: string;
 }
 
+interface ComputeRun {
+    id: number;
+    status: 'queued' | 'running' | 'succeeded' | 'failed';
+    trigger_source?: string;
+    progress_pct: number;
+    done_entities: number;
+    total_entities: number;
+    eta_seconds?: number | null;
+    error?: string | null;
+    run_id?: string | null;
+    started_at?: string | null;
+    finished_at?: string | null;
+}
+
 export default function Forecasts() {
     const queryClient = useQueryClient();
     const [activeTab, setActiveTab] = useState<'risks' | 'recommendations' | 'engine'>('risks');
+    const [computeRun, setComputeRun] = useState<ComputeRun | null>(null);
+    const [computeError, setComputeError] = useState<string | null>(null);
 
     const { data: summary, isLoading: loadingSummary } = useQuery<SummaryData>({
         queryKey: ['forecast-summary'],
@@ -72,6 +88,58 @@ export default function Forecasts() {
         },
     });
 
+    const computeMutation = useMutation({
+        mutationFn: () => apiPost<{ run_id: number; status: string }>('/api/forecasts/compute'),
+        onSuccess: (result) => {
+            setComputeError(null);
+            setComputeRun({
+                id: result.run_id,
+                status: 'queued',
+                progress_pct: 0,
+                done_entities: 0,
+                total_entities: 0,
+            });
+        },
+        onError: (error) => setComputeError(errMsg(error)),
+    });
+
+    useEffect(() => {
+        if (!computeRun || !['queued', 'running'].includes(computeRun.status)) {
+            return;
+        }
+
+        let cancelled = false;
+
+        const poll = async () => {
+            try {
+                const latest = await apiGet<ComputeRun>(`/api/forecasts/compute/${computeRun.id}`);
+                if (cancelled) return;
+
+                setComputeRun(latest);
+
+                if (latest.status === 'succeeded' || latest.status === 'failed') {
+                    queryClient.invalidateQueries({ queryKey: ['forecast-summary'] });
+                    queryClient.invalidateQueries({ queryKey: ['forecast-risks'] });
+                    queryClient.invalidateQueries({ queryKey: ['forecast-recs'] });
+
+                    if (latest.status === 'failed') {
+                        setComputeError(latest.error ?? 'Forecast computation failed.');
+                    }
+                }
+            } catch (error) {
+                if (!cancelled) setComputeError(errMsg(error));
+            }
+        };
+
+        void poll();
+        const timer = window.setInterval(poll, 2000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [computeRun?.id, computeRun?.status, queryClient]);
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -82,13 +150,41 @@ export default function Forecasts() {
                         Predictive stockout alerts, velocity-based burn rates, and automated restock suggestions powered by PostgreSQL & Python ML.
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    {computeRun && (
+                        <span className="text-xs text-gray-500">
+                            {computeRun.status === 'queued'
+                                ? 'Queued…'
+                                : computeRun.status === 'running'
+                                ? `Computing ${computeRun.progress_pct}%${computeRun.eta_seconds ? ` (~${Math.ceil(computeRun.eta_seconds / 60)} min left)` : ''}`
+                                : computeRun.status}
+                        </span>
+                    )}
+                    <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => computeMutation.mutate()}
+                        disabled={
+                            computeMutation.isPending ||
+                            (computeRun !== null && ['queued', 'running'].includes(computeRun.status))
+                        }
+                    >
+                        {computeRun && ['queued', 'running'].includes(computeRun.status)
+                            ? 'Computing…'
+                            : 'Compute now'}
+                    </Button>
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                         Supabase ML Schema Active
                     </span>
                 </div>
             </div>
+
+            {computeError && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {computeError}
+                </div>
+            )}
 
             {/* Stat Cards */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
