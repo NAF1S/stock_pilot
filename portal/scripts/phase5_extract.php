@@ -158,4 +158,14 @@ $data['reserved'] = DB::select("
     GROUP BY ds, item_id, product_id ORDER BY ds
 ", [$org, $start]);
 
+fwrite(STDERR, "events\n");
+$data['events'] = DB::select("
+    SELECT event_date, event_type, event_name, impact_factor
+    FROM ml_calendar_events
+    WHERE (organization_id = ? OR organization_id IS NULL)
+      AND event_date >= ?
+      AND event_date <= ?
+    ORDER BY event_date
+", [$org, $start, date('Y-m-d')]);
+
 echo json_encode($data, JSON_THROW_ON_ERROR);
