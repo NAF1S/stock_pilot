@@ -1,10 +1,23 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import {
+    AlertTriangle,
+    ArrowRight,
+    Boxes,
+    Package,
+    Plug,
+    Sparkles,
+    TrendingDown,
+    TrendingUp,
+    Wallet,
+} from 'lucide-react';
 import { apiGet } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { money, number } from '../lib/format';
-import { Badge, Card, PageHeader, Spinner, StatCard, Table } from '../components/ui';
+import { compact, money, number } from '../lib/format';
+import { reservationTone, riskTone, statusTone } from '../lib/status';
+import { Badge, Button, Card, EmptyState, PageHeader, Progress, Spinner, StatCard, Tabs } from '../components/ui';
+import { DataTable, type Column } from '../components/ui/DataTable';
 
 interface DashboardData {
     asset_value: number;
@@ -56,16 +69,7 @@ interface DashboardData {
     store_health: { connected: number; total: number };
 }
 
-const stateTone = (s: string) => {
-    switch (s) {
-        case 'confirmed': return 'green';
-        case 'reserved': return 'blue';
-        case 'returned': return 'purple';
-        case 'released': return 'gray';
-        case 'partial': return 'amber';
-        default: return 'gray';
-    }
-};
+type RecentOrder = DashboardData['recent_orders'][number];
 
 export default function Dashboard() {
     const { user } = useAuth();
@@ -75,307 +79,420 @@ export default function Dashboard() {
     });
 
     const [stockTab, setStockTab] = useState<'items' | 'products'>('items');
-    const [movePeriod, setMovePeriod] = useState<'today' | 'week' | 'year'>('week');
+    const [period, setPeriod] = useState<'today' | 'week' | 'year'>('week');
 
     const currency = user?.organization?.currency ?? 'BDT';
+    const firstName = user?.name?.trim().split(/\s+/)[0] || 'there';
 
-    const currentMoveSummary = data?.movements
-        ? data.movements[movePeriod]
+    const movement = data?.movements
+        ? data.movements[period]
         : { total_in: 0, total_out: 0, net_change: 0, total_events: 0 };
+
+    const alerts = data
+        ? {
+              items: data.stock_alerts_count?.items ?? data.low_stock.length,
+              products: data.stock_alerts_count?.products ?? data.low_stock_products.length,
+              total:
+                  data.stock_alerts_count?.total ??
+                  data.low_stock.length + data.low_stock_products.length,
+          }
+        : { items: 0, products: 0, total: 0 };
+
+    const ordersTotal = data?.orders_by_status.reduce((sum, row) => sum + row.count, 0) ?? 0;
+
+    const orderColumns: Column<RecentOrder>[] = [
+        {
+            head: 'Order',
+            key: true,
+            code: true,
+            cell: (o) => (
+                <span className="font-semibold whitespace-nowrap text-ink">#{o.woocommerce_number}</span>
+            ),
+        },
+        {
+            head: 'Customer',
+            cell: (o) => o.customer_name || '—',
+        },
+        {
+            head: 'Status',
+            cell: (o) => <Badge tone={statusTone(o.status)}>{o.status}</Badge>,
+        },
+        {
+            head: 'Reservation',
+            cell: (o) => <Badge tone={reservationTone(o.reservation_state)}>{o.reservation_state}</Badge>,
+        },
+        {
+            head: 'Total',
+            align: 'end',
+            code: true,
+            cell: (o) => <span className="whitespace-nowrap text-ink">{money(o.total, currency)}</span>,
+        },
+    ];
 
     return (
         <div>
-            <PageHeader title="Dashboard" subtitle="A live view of your inventory value, movements, and order health" />
+            <PageHeader
+                title={`Welcome back, ${firstName}`}
+                subtitle="A live view of your inventory value, stock health and order flow."
+                actions={
+                    <>
+                        <Link to="/app/forecasts">
+                            <Button variant="secondary">
+                                <Sparkles className="size-4" aria-hidden="true" />
+                                AI insights
+                            </Button>
+                        </Link>
+                        <Link to="/app/orders">
+                            <Button>
+                                View orders
+                                <ArrowRight className="size-4" aria-hidden="true" />
+                            </Button>
+                        </Link>
+                    </>
+                }
+            />
             {isLoading || !data ? (
                 <div className="flex justify-center p-12">
-                    <Spinner className="size-8 text-indigo-600" />
+                    <Spinner className="size-8 text-brand-600" />
                 </div>
             ) : (
                 <>
-                    {data.store_health.total === 0 && (
-                        <div className="mb-6 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-purple-50 to-white p-5 shadow-sm">
-                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xl">🚀</span>
-                                        <h3 className="text-base font-bold text-indigo-950">Welcome to your new StockPilot workspace!</h3>
-                                    </div>
-                                    <p className="mt-1 text-sm text-gray-600">
-                                        Connect your WooCommerce store via our bridge plugin to automatically sync your products, orders, and inventory.
-                                    </p>
-                                </div>
+                    {/* Stat row */}
+                    <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+                        <StatCard
+                            label="Asset value"
+                            value={money(data.asset_value, currency)}
+                            sub="on-hand × cost"
+                            tone="blue"
+                            icon={<Wallet className="size-4" />}
+                        />
+                        <StatCard
+                            label="Stock alerts"
+                            value={alerts.total}
+                            sub={`${alerts.items} materials · ${alerts.products} products`}
+                            tone="red"
+                            icon={<AlertTriangle className="size-4" />}
+                        />
+                        <StatCard
+                            label="Orders synced"
+                            value={compact(ordersTotal)}
+                            sub="all time (synced)"
+                            tone="gray"
+                            icon={<Package className="size-4" />}
+                        />
+                        <StatCard
+                            label="Stores connected"
+                            value={`${data.store_health.connected} / ${data.store_health.total}`}
+                            sub="WooCommerce"
+                            tone="green"
+                            icon={<Plug className="size-4" />}
+                        />
+                    </div>
+
+                    {/* Two-column: stock health + movement */}
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                        <Card
+                            title="Low & out of stock"
+                            actions={
+                                <Tabs
+                                    items={[
+                                        { id: 'items', label: 'Materials', count: alerts.items },
+                                        { id: 'products', label: 'Products', count: alerts.products },
+                                    ]}
+                                    value={stockTab}
+                                    onChange={setStockTab}
+                                />
+                            }
+                            bodyClassName="p-0"
+                        >
+                            {stockTab === 'items' ? (
+                                data.low_stock.length === 0 ? (
+                                    <EmptyState
+                                        title="No materials need attention"
+                                        hint="Every material is above its low-stock threshold."
+                                        icon={<Boxes className="size-5" aria-hidden="true" />}
+                                    />
+                                ) : (
+                                    <ul className="divide-y divide-line">
+                                        {data.low_stock.map((item) => {
+                                            const pct =
+                                                item.low_stock_threshold > 0
+                                                    ? (item.quantity_on_hand / item.low_stock_threshold) * 100
+                                                    : 0;
+                                            return (
+                                                <li key={item.id} className="flex items-center gap-3 px-3 py-2.5">
+                                                    <div className="min-w-0 flex-1">
+                                                        <Link
+                                                            to="/app/items"
+                                                            className="block truncate text-sm font-medium text-ink hover:text-brand-600 dark:hover:text-brand-400"
+                                                        >
+                                                            {item.name}
+                                                        </Link>
+                                                        <div className="sp-code mt-0.5 truncate">
+                                                            {item.sku ? `${item.sku} · ` : ''}
+                                                            threshold {number(item.low_stock_threshold)}
+                                                            {item.unit ? ` ${item.unit}` : ''}
+                                                        </div>
+                                                        <div className="mt-1.5 max-w-[10rem]">
+                                                            <Progress
+                                                                value={pct}
+                                                                tone={riskTone(
+                                                                    item.is_out_of_stock ? 'critical' : 'warning',
+                                                                )}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="shrink-0 text-right">
+                                                        <div className="text-sm font-semibold text-ink">
+                                                            {number(item.quantity_on_hand)}
+                                                            <span className="ml-1 text-[11px] font-normal text-ink-subtle">
+                                                                {item.unit ?? ''}
+                                                            </span>
+                                                        </div>
+                                                        <Badge
+                                                            tone={riskTone(
+                                                                item.is_out_of_stock ? 'critical' : 'warning',
+                                                            )}
+                                                            className="mt-1"
+                                                        >
+                                                            {item.is_out_of_stock ? 'Out of stock' : 'Low stock'}
+                                                        </Badge>
+                                                    </div>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )
+                            ) : data.low_stock_products.length === 0 ? (
+                                <EmptyState
+                                    title="No products need attention"
+                                    hint="Every product has enough available stock for its threshold."
+                                    icon={<Package className="size-5" aria-hidden="true" />}
+                                />
+                            ) : (
+                                <ul className="divide-y divide-line">
+                                    {data.low_stock_products.map((product) => {
+                                        const pct =
+                                            product.low_stock_threshold > 0
+                                                ? (product.available / product.low_stock_threshold) * 100
+                                                : 0;
+                                        return (
+                                            <li key={product.id} className="flex items-center gap-3 px-3 py-2.5">
+                                                <div className="min-w-0 flex-1">
+                                                    <Link
+                                                        to="/app/products"
+                                                        className="block truncate text-sm font-medium text-ink hover:text-brand-600 dark:hover:text-brand-400"
+                                                    >
+                                                        {product.name}
+                                                    </Link>
+                                                    <div className="sp-code mt-0.5 truncate">
+                                                        {product.sku ? `${product.sku} · ` : ''}
+                                                        threshold {number(product.low_stock_threshold)} · reserved{' '}
+                                                        {number(product.quantity_reserved)}
+                                                    </div>
+                                                    <div className="mt-1.5 max-w-[10rem]">
+                                                        <Progress
+                                                            value={pct}
+                                                            tone={riskTone(
+                                                                product.is_out_of_stock ? 'critical' : 'warning',
+                                                            )}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0 text-right">
+                                                    <div className="text-sm font-semibold text-ink">
+                                                        {number(product.available)}
+                                                        <span className="ml-1 text-[11px] font-normal text-ink-subtle">
+                                                            avail
+                                                        </span>
+                                                    </div>
+                                                    <Badge
+                                                        tone={riskTone(
+                                                            product.is_out_of_stock ? 'critical' : 'warning',
+                                                        )}
+                                                        className="mt-1"
+                                                    >
+                                                        {product.is_out_of_stock ? 'Out of stock' : 'Low stock'}
+                                                    </Badge>
+                                                </div>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+
+                            <div className="border-t border-line px-3 py-2">
                                 <Link
-                                    to="/stores"
-                                    className="inline-flex shrink-0 items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+                                    to={stockTab === 'items' ? '/app/items' : '/app/products'}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400"
                                 >
-                                    Connect Store &rarr;
+                                    Manage {stockTab === 'items' ? 'materials' : 'products'}
+                                    <ArrowRight className="size-3" aria-hidden="true" />
+                                </Link>
+                            </div>
+                        </Card>
+
+                        <Card
+                            title="Stock movement"
+                            actions={
+                                <Tabs
+                                    items={[
+                                        { id: 'today', label: 'Today' },
+                                        { id: 'week', label: 'Week' },
+                                        { id: 'year', label: 'Year' },
+                                    ]}
+                                    value={period}
+                                    onChange={setPeriod}
+                                />
+                            }
+                        >
+                            <div className="grid grid-cols-3 gap-2 border border-line bg-surface-sunken p-2 text-center">
+                                <div>
+                                    <div className="text-xs text-ink-subtle">Stock in</div>
+                                    <div className="sp-figure mt-1 flex items-center justify-center gap-1 text-lg text-positive">
+                                        <TrendingUp className="size-3.5" aria-hidden="true" />+
+                                        {number(movement.total_in)}
+                                    </div>
+                                </div>
+                                <div className="border-x border-line">
+                                    <div className="text-xs text-ink-subtle">Stock out</div>
+                                    <div className="sp-figure mt-1 flex items-center justify-center gap-1 text-lg text-danger">
+                                        <TrendingDown className="size-3.5" aria-hidden="true" />-
+                                        {number(movement.total_out)}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-ink-subtle">Net delta</div>
+                                    <div
+                                        className={`sp-figure mt-1 text-lg ${
+                                            movement.net_change >= 0 ? 'text-positive' : 'text-ink'
+                                        }`}
+                                    >
+                                        {movement.net_change >= 0 ? '+' : ''}
+                                        {number(movement.net_change)}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-4">
+                                <div className="mb-2 text-xs font-medium text-ink-subtle">
+                                    Top movers this week
+                                </div>
+                                {data.movements?.top_moving && data.movements.top_moving.length > 0 ? (
+                                    <ul className="space-y-1.5">
+                                        {data.movements.top_moving.map((mover) => (
+                                            <li
+                                                key={`${mover.entity_type}-${mover.entity_id}`}
+                                                className="flex items-center gap-2 text-xs"
+                                            >
+                                                <span
+                                                    className={`size-1.5 shrink-0 ${
+                                                        mover.entity_type === 'item'
+                                                            ? 'bg-brand-500'
+                                                            : 'bg-accent-500'
+                                                    }`}
+                                                />
+                                                <span className="flex-1 truncate text-ink">{mover.name}</span>
+                                                <span className="sp-code shrink-0 text-danger">
+                                                    -{number(mover.out_qty)}
+                                                </span>
+                                                {mover.in_qty > 0 && (
+                                                    <span className="sp-code shrink-0 text-positive">
+                                                        +{number(mover.in_qty)}
+                                                    </span>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="text-xs text-ink-subtle">No stock movements recorded this week.</p>
+                                )}
+                            </div>
+
+                            <div className="mt-3 border-t border-line pt-2">
+                                <Link
+                                    to="/app/movements"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400"
+                                >
+                                    Full movement analytics
+                                    <ArrowRight className="size-3" aria-hidden="true" />
+                                </Link>
+                            </div>
+                        </Card>
+                    </div>
+
+                    {/* Orders */}
+                    <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                        <Card title="Orders by status">
+                            {data.orders_by_status.length === 0 ? (
+                                <p className="text-sm text-ink-subtle">No orders synced yet.</p>
+                            ) : (
+                                <ul className="space-y-2.5">
+                                    {data.orders_by_status.map((row) => (
+                                        <li
+                                            key={row.status}
+                                            className="flex items-center justify-between gap-2"
+                                        >
+                                            <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                                            <span className="text-sm font-semibold text-ink">
+                                                {number(row.count)}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </Card>
+
+                        <Card
+                            title="Recent orders"
+                            className="lg:col-span-2"
+                            actions={
+                                <Link to="/app/orders">
+                                    <Button size="sm" variant="ghost">
+                                        View all <ArrowRight className="size-3" aria-hidden="true" />
+                                    </Button>
+                                </Link>
+                            }
+                            bodyClassName="p-0"
+                        >
+                            <DataTable
+                                columns={orderColumns}
+                                rows={data.recent_orders}
+                                rowKey={(order) => order.id}
+                                empty={
+                                    <EmptyState
+                                        title="No recent orders"
+                                        hint="Orders synced from WooCommerce will appear here."
+                                        icon={<Package className="size-5" aria-hidden="true" />}
+                                    />
+                                }
+                            />
+                        </Card>
+                    </div>
+
+                    {data.store_health.total === 0 && (
+                        <div className="mt-4 border border-line border-l-2 border-l-brand-600 bg-surface p-3 sm:p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex items-start gap-3">
+                                    <div className="flex size-9 shrink-0 items-center justify-center border border-line bg-surface-sunken text-brand-600 dark:text-brand-300">
+                                        <Boxes className="size-4" aria-hidden="true" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <h3 className="text-sm font-semibold text-ink">
+                                            Connect your first WooCommerce store
+                                        </h3>
+                                        <p className="mt-0.5 text-sm text-ink-muted">
+                                            Install the bridge plugin to sync your products, orders and inventory
+                                            automatically.
+                                        </p>
+                                    </div>
+                                </div>
+                                <Link to="/app/stores" className="shrink-0">
+                                    <Button variant="secondary">Connect store</Button>
                                 </Link>
                             </div>
                         </div>
                     )}
-
-                    {/* Stat Cards */}
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        <StatCard label="Asset value" value={money(data.asset_value, currency)} sub="Σ on-hand × cost" />
-                        <StatCard
-                            label="Stock Alerts"
-                            value={data.stock_alerts_count?.total ?? (data.low_stock.length + data.low_stock_products.length)}
-                            tone="red"
-                            sub={`${data.stock_alerts_count?.items ?? data.low_stock.length} materials · ${data.stock_alerts_count?.products ?? data.low_stock_products.length} products`}
-                        />
-                        <StatCard
-                            label="Orders"
-                            value={data.orders_by_status.reduce((a, r) => a + r.count, 0)}
-                            sub="All time (synced)"
-                        />
-                        <StatCard
-                            label="Stores connected"
-                            value={`${data.store_health.connected}/${data.store_health.total}`}
-                            sub="WooCommerce"
-                        />
-                    </div>
-
-                    {/* 2-Column Grid: Stock Alerts (Materials & Products) & Movement Overview */}
-                    <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                        {/* Out of Stock & Low Stock Card (Items & Products) */}
-                        <Card
-                            title={
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span>⚠️</span>
-                                        <span className="font-semibold text-gray-900">Low &amp; Out of Stock</span>
-                                    </div>
-                                    <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
-                                        <button
-                                            type="button"
-                                            onClick={() => setStockTab('items')}
-                                            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                                                stockTab === 'items'
-                                                    ? 'bg-white text-indigo-700 shadow-xs'
-                                                    : 'text-gray-600 hover:text-gray-900'
-                                            }`}
-                                        >
-                                            Materials ({data.stock_alerts_count?.items ?? data.low_stock.length})
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setStockTab('products')}
-                                            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                                                stockTab === 'products'
-                                                    ? 'bg-white text-indigo-700 shadow-xs'
-                                                    : 'text-gray-600 hover:text-gray-900'
-                                            }`}
-                                        >
-                                            Products ({data.stock_alerts_count?.products ?? data.low_stock_products.length})
-                                        </button>
-                                    </div>
-                                </div>
-                            }
-                        >
-                            {stockTab === 'items' ? (
-                                data.low_stock.length === 0 ? (
-                                    <p className="text-sm text-gray-500 py-3">No materials are low or out of stock. 🎉</p>
-                                ) : (
-                                    <div className="divide-y divide-gray-100">
-                                        {data.low_stock.map((item) => (
-                                            <div key={item.id} className="flex items-center justify-between py-2 text-sm">
-                                                <div className="min-w-0 pr-2">
-                                                    <Link to="/items" className="font-medium text-gray-800 hover:text-indigo-600 truncate block">
-                                                        {item.name}
-                                                    </Link>
-                                                    <span className="text-xs text-gray-500">
-                                                        Threshold: {number(item.low_stock_threshold)} {item.unit || ''}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-2 shrink-0">
-                                                    <span className="font-semibold text-gray-700 text-xs sm:text-sm">
-                                                        {number(item.quantity_on_hand)} {item.unit || ''}
-                                                    </span>
-                                                    {item.is_out_of_stock ? (
-                                                        <Badge tone="red">Out of stock</Badge>
-                                                    ) : (
-                                                        <Badge tone="amber">Low stock</Badge>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )
-                            ) : data.low_stock_products.length === 0 ? (
-                                <p className="text-sm text-gray-500 py-3">No products are low or out of stock. 🎉</p>
-                            ) : (
-                                <div className="divide-y divide-gray-100">
-                                    {data.low_stock_products.map((p) => (
-                                        <div key={p.id} className="flex items-center justify-between py-2 text-sm">
-                                            <div className="min-w-0 pr-2">
-                                                <Link to="/products" className="font-medium text-gray-800 hover:text-indigo-600 truncate block">
-                                                    {p.name}
-                                                </Link>
-                                                <span className="text-xs text-gray-500">
-                                                    Reserved: {number(p.quantity_reserved)} · Threshold: {number(p.low_stock_threshold)}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-2 shrink-0">
-                                                <span className="font-semibold text-gray-700 text-xs sm:text-sm">
-                                                    {number(p.available)} avail
-                                                </span>
-                                                {p.is_out_of_stock ? (
-                                                    <Badge tone="red">Out of stock</Badge>
-                                                ) : (
-                                                    <Badge tone="amber">Low stock</Badge>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <div className="mt-3 pt-2 border-t border-gray-100 flex justify-end">
-                                <Link
-                                    to={stockTab === 'items' ? '/items' : '/products'}
-                                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                                >
-                                    Manage {stockTab === 'items' ? 'Materials' : 'Products'} &rarr;
-                                </Link>
-                            </div>
-                        </Card>
-
-                        {/* Stock Movement Overview Card */}
-                        <Card
-                            title={
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span>📈</span>
-                                        <span className="font-semibold text-gray-900">Stock Movement Overview</span>
-                                    </div>
-                                    <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
-                                        {(
-                                            [
-                                                { id: 'today', label: 'Today' },
-                                                { id: 'week', label: 'This Week' },
-                                                { id: 'year', label: 'This Year' },
-                                            ] as const
-                                        ).map((tab) => (
-                                            <button
-                                                key={tab.id}
-                                                type="button"
-                                                onClick={() => setMovePeriod(tab.id)}
-                                                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                                                    movePeriod === tab.id
-                                                        ? 'bg-white text-indigo-700 shadow-xs'
-                                                        : 'text-gray-600 hover:text-gray-900'
-                                                }`}
-                                            >
-                                                {tab.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            }
-                        >
-                            {/* Movement Metrics Trio */}
-                            <div className="grid grid-cols-3 gap-2 rounded-lg bg-gray-50 p-3 text-center">
-                                <div>
-                                    <div className="text-[11px] font-medium text-gray-500">Stock Out (-)</div>
-                                    <div className="text-base sm:text-lg font-bold text-red-600">
-                                        -{number(currentMoveSummary.total_out)}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-[11px] font-medium text-gray-500">Stock In (+)</div>
-                                    <div className="text-base sm:text-lg font-bold text-emerald-600">
-                                        +{number(currentMoveSummary.total_in)}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-[11px] font-medium text-gray-500">Net Delta</div>
-                                    <div className={`text-base sm:text-lg font-bold ${
-                                        currentMoveSummary.net_change >= 0 ? 'text-emerald-700' : 'text-amber-600'
-                                    }`}>
-                                        {currentMoveSummary.net_change >= 0 ? '+' : ''}{number(currentMoveSummary.net_change)}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Top Active Movers This Week */}
-                            <div className="mt-4">
-                                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                                    Top Moved Items &amp; Products (Weekly Flow)
-                                </div>
-                                {(!data.movements?.top_moving || data.movements.top_moving.length === 0) ? (
-                                    <p className="text-xs text-gray-400 py-2">No stock movements recorded this week.</p>
-                                ) : (
-                                    <div className="space-y-1.5">
-                                        {data.movements.top_moving.map((m) => (
-                                            <div key={`${m.entity_type}-${m.entity_id}`} className="flex items-center justify-between text-xs py-1">
-                                                <div className="flex items-center gap-1.5 truncate pr-2">
-                                                    <span className={`inline-block size-1.5 rounded-full ${
-                                                        m.entity_type === 'item' ? 'bg-purple-500' : 'bg-blue-500'
-                                                    }`} />
-                                                    <span className="font-medium text-gray-800 truncate">{m.name}</span>
-                                                </div>
-                                                <div className="flex items-center gap-2 shrink-0 font-semibold">
-                                                    <span className="text-red-600">-{number(m.out_qty)}</span>
-                                                    {m.in_qty > 0 && <span className="text-emerald-600">+{number(m.in_qty)}</span>}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="mt-4 pt-2 border-t border-gray-100 flex justify-end">
-                                <Link
-                                    to="/movements"
-                                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                                >
-                                    View Full Movement Analytics &rarr;
-                                </Link>
-                            </div>
-                        </Card>
-                    </div>
-
-                    {/* Orders by Status & Recent Orders */}
-                    <div className="mt-6 grid gap-4 lg:grid-cols-3">
-                        <div className="lg:col-span-1">
-                            <Card title="Orders by status">
-                                {data.orders_by_status.length === 0 ? (
-                                    <p className="text-sm text-gray-500">No orders synced yet.</p>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {data.orders_by_status.map((r) => (
-                                            <div key={r.status} className="flex items-center justify-between text-sm">
-                                                <Badge tone="gray">{r.status}</Badge>
-                                                <span className="font-medium">{r.count}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </Card>
-                        </div>
-
-                        <div className="lg:col-span-2">
-                            <Card title="Recent orders">
-                                <Table
-                                    head={['Order', 'Customer', 'Status', 'Reservation', 'Total']}
-                                    empty={
-                                        data.recent_orders.length === 0 ? (
-                                            <p className="p-4 text-sm text-gray-500">Orders synced from WooCommerce will appear here.</p>
-                                        ) : undefined
-                                    }
-                                >
-                                    {data.recent_orders.map((o) => (
-                                        <tr key={o.id} className="hover:bg-gray-50">
-                                            <td className="px-4 py-2 font-medium text-gray-800">#{o.woocommerce_number}</td>
-                                            <td className="px-4 py-2">{o.customer_name ?? '—'}</td>
-                                            <td className="px-4 py-2"><Badge tone="gray">{o.status}</Badge></td>
-                                            <td className="px-4 py-2"><Badge tone={stateTone(o.reservation_state) as 'green'}>{o.reservation_state}</Badge></td>
-                                            <td className="px-4 py-2">{money(o.total, currency)}</td>
-                                        </tr>
-                                    ))}
-                                </Table>
-                            </Card>
-                        </div>
-                    </div>
                 </>
             )}
         </div>
