@@ -63,55 +63,57 @@ export function DataTable<T>({
     return (
         <div className={cn('w-full', className)}>
             {/* -------------------------------------------------- wide */}
-            <table className="hidden w-full border-collapse text-sm md:table">
-                <thead>
-                    <tr className="border-b-2 border-line-strong">
-                        {columns.map((c, i) => (
-                            <th
-                                key={i}
-                                scope="col"
-                                className={cn(
-                                    'px-2 py-2 text-xs font-medium whitespace-nowrap text-ink-subtle',
-                                    c.align === 'end' ? 'text-right' : 'text-left',
-                                    c.hide && HIDE[c.hide],
-                                )}
-                            >
-                                {c.head}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.map((row) => {
-                        const k = rowKey(row);
-                        return (
-                            <tr
-                                key={k}
-                                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                                className={cn(
-                                    'border-b border-line',
-                                    onRowClick && 'cursor-pointer hover:bg-surface-sunken',
-                                    activeKey === k && 'bg-surface-sunken',
-                                )}
-                            >
-                                {columns.map((c, i) => (
-                                    <td
-                                        key={i}
-                                        className={cn(
-                                            'px-2 py-2 align-middle',
-                                            c.align === 'end' ? 'text-right' : 'text-left',
-                                            c.code ? 'sp-code' : 'text-ink-muted',
-                                            c.hide && HIDE[c.hide],
-                                        )}
-                                    >
-                                        {c.cell(row)}
-                                    </td>
-                                ))}
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
+            <div className="hidden overflow-x-auto md:block">
+                <table className="w-full min-w-full border-collapse text-sm">
+                    <thead>
+                        <tr className="border-b-2 border-line-strong">
+                            {columns.map((c, i) => (
+                                <th
+                                    key={i}
+                                    scope="col"
+                                    className={cn(
+                                        'px-2 py-2 text-xs font-medium whitespace-nowrap text-ink-subtle',
+                                        c.align === 'end' ? 'text-right' : 'text-left',
+                                        c.hide && HIDE[c.hide],
+                                    )}
+                                >
+                                    {c.head}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((row) => {
+                            const k = rowKey(row);
+                            return (
+                                <tr
+                                    key={k}
+                                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                                    className={cn(
+                                        'border-b border-line',
+                                        onRowClick && 'cursor-pointer hover:bg-surface-sunken',
+                                        activeKey === k && 'bg-surface-sunken',
+                                    )}
+                                >
+                                    {columns.map((c, i) => (
+                                        <td
+                                            key={i}
+                                            className={cn(
+                                                'px-2 py-2 align-middle',
+                                                c.align === 'end' ? 'text-right' : 'text-left',
+                                                c.code ? 'sp-code' : 'text-ink-muted',
+                                                c.hide && HIDE[c.hide],
+                                            )}
+                                        >
+                                            {c.cell(row)}
+                                        </td>
+                                    ))}
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
 
             {/* ------------------------------------------------- phone */}
             <ul className="divide-y divide-line border-t-2 border-line-strong md:hidden">

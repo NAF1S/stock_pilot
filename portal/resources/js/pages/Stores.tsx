@@ -99,7 +99,7 @@ export default function Stores() {
             cell: (store) => <span className="sp-code text-xs">{dateTime(store.last_sync_at)}</span>,
         },
         {
-            head: 'Orders synced',
+            head: 'Syncs',
             align: 'end',
             code: true,
             hide: 'lg',
