@@ -420,7 +420,7 @@ const FAQ = [
     },
     {
         q: 'Where does forecasting data come from?',
-        a: 'Only from your own movement ledger. The engine computes daily burn, runway and reorder quantities from real orders and adjustments. There is no external model, and nothing leaves the workspace.',
+        a: 'Only from your own movement ledger. The engine computes daily burn, runway and reorder quantities from real orders and adjustments. The built-in command runs that baseline on your own server; if your operator configures an external training worker, only the recompute step sends data to it.',
     },
     {
         q: 'Which order statuses move stock?',
