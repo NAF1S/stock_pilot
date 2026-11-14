@@ -1,7 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Check, PackageCheck, ShieldAlert, Sparkles, X } from 'lucide-react';
 import { apiGet, apiPost, errMsg } from '../lib/api';
-import { Badge, Button, Card, StatCard, Spinner, Table, EmptyState } from '../components/ui';
+import { date, dateTime, number } from '../lib/format';
+import { riskTone, urgencyTone } from '../lib/status';
+import {
+    Badge,
+    Button,
+    Card,
+    EmptyState,
+    Flash,
+    PageHeader,
+    Progress,
+    Spinner,
+    StatCard,
+    Tabs,
+    Tooltip,
+} from '../components/ui';
+import { DataTable, type Column } from '../components/ui/DataTable';
 
 interface SummaryData {
     counts: {
@@ -95,12 +111,20 @@ interface PipelineHealth {
     forecast_age_hours: number | null;
 }
 
+type TabId = 'risks' | 'restock' | 'forecast' | 'engine';
+
+const isRunning = (run: ComputeRun | null) => run !== null && ['queued', 'running'].includes(run.status);
+
+const forecastRowKey = (entity: ForecastEntity) =>
+    `${entity.entity_type}-${entity.entity_id}-${entity.model_version}`;
+
 export default function Forecasts() {
     const queryClient = useQueryClient();
-    const [activeTab, setActiveTab] = useState<'forecasts' | 'risks' | 'recommendations' | 'engine'>('forecasts');
+    const [activeTab, setActiveTab] = useState<TabId>('risks');
     const [computeRun, setComputeRun] = useState<ComputeRun | null>(null);
     const [computeError, setComputeError] = useState<string | null>(null);
     const [selected, setSelected] = useState<{ entity_type: string; entity_id: number; name: string } | null>(null);
+    const [decided, setDecided] = useState<Record<number, 'accepted' | 'dismissed'>>({});
 
     const { data: summary, isLoading: loadingSummary } = useQuery<SummaryData>({
         queryKey: ['forecast-summary'],
@@ -198,387 +222,573 @@ export default function Forecasts() {
         };
     }, [computeRun?.id, computeRun?.status, queryClient]);
 
-    return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-gray-900">AI Forecasting & Inventory Intelligence</h1>
-                    <p className="text-sm text-gray-500">
-                        Predictive stockout alerts, velocity-based burn rates, and automated restock suggestions powered by PostgreSQL & Python ML.
-                    </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    {computeRun && (
-                        <span className="text-xs text-gray-500">
-                            {computeRun.status === 'queued'
-                                ? 'Queued…'
-                                : computeRun.status === 'running'
-                                ? `Computing ${computeRun.progress_pct}%${computeRun.eta_seconds ? ` (~${Math.ceil(computeRun.eta_seconds / 60)} min left)` : ''}`
-                                : computeRun.status}
-                        </span>
-                    )}
-                    <Button
-                        size="sm"
-                        variant="primary"
-                        onClick={() => computeMutation.mutate()}
-                        disabled={
-                            computeMutation.isPending ||
-                            (computeRun !== null && ['queued', 'running'].includes(computeRun.status))
-                        }
-                    >
-                        {computeRun && ['queued', 'running'].includes(computeRun.status)
-                            ? 'Computing…'
-                            : 'Compute now'}
-                    </Button>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                        Supabase ML Schema Active
-                    </span>
-                </div>
-            </div>
+    const decide = (id: number, status: 'accepted' | 'dismissed') => {
+        setDecided((previous) => ({ ...previous, [id]: status }));
+        actionMutation.mutateAsync({ id, status }).catch(() => {
+            setDecided((previous) => {
+                const next = { ...previous };
+                delete next[id];
+                return next;
+            });
+        });
+    };
 
-            {computeError && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {computeError}
+    const loading = (
+        <div className="grid place-items-center py-12">
+            <Spinner className="size-5 text-ink-subtle" />
+        </div>
+    );
+
+    const activeRow = selected
+        ? (forecastsData?.entities ?? []).find(
+              (entity) =>
+                  entity.entity_type === selected.entity_type && entity.entity_id === selected.entity_id
+          )
+        : undefined;
+
+    const activeForecastKey = activeRow ? forecastRowKey(activeRow) : null;
+
+    const riskColumns: Column<RiskItem>[] = [
+        {
+            head: 'Entity',
+            key: true,
+            cell: (r) => (
+                <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium text-ink">{r.entity_name}</span>
+                    <span className="sp-code">{r.entity_sku ?? r.entity_type}</span>
+                </span>
+            ),
+        },
+        {
+            head: 'Days to stockout',
+            cell: (r) =>
+                r.days_until_stockout == null ? (
+                    <span className="text-xs text-ink-subtle">no burn recorded</span>
+                ) : (
+                    <span className="flex items-center gap-1.5">
+                        <span
+                            className={
+                                r.risk_level === 'critical'
+                                    ? 'sp-figure text-xl text-danger'
+                                    : 'sp-figure text-xl text-ink'
+                            }
+                        >
+                            {number(r.days_until_stockout, 1)}
+                        </span>
+                        <span className="text-xs text-ink-subtle">
+                            {r.days_until_stockout === 1 ? 'day' : 'days'}
+                        </span>
+                    </span>
+                ),
+        },
+        {
+            head: 'Daily burn',
+            align: 'end',
+            cell: (r) => (
+                <span className="sp-code">
+                    {number(r.daily_burn_rate, 2)}
+                    {r.entity_unit ? ` ${r.entity_unit}` : ''}/day
+                </span>
+            ),
+        },
+        {
+            head: 'Current stock',
+            align: 'end',
+            code: true,
+            cell: (r) => (
+                <span className="flex items-baseline justify-end gap-1">
+                    {number(r.current_stock, 2)}
+                    {r.entity_unit && <span className="text-xs text-ink-subtle">{r.entity_unit}</span>}
+                </span>
+            ),
+        },
+        {
+            head: 'Est. stockout',
+            cell: (r) => (
+                <span className="sp-code text-xs">
+                    {r.estimated_stockout_date ? date(r.estimated_stockout_date) : 'no date claimed'}
+                </span>
+            ),
+        },
+        {
+            head: 'Model',
+            cell: (r) => <span className="sp-code text-xs">{r.model_version ?? '—'}</span>,
+            hide: 'md',
+        },
+        {
+            head: 'Risk',
+            align: 'end',
+            cell: (r) => (
+                <Tooltip label={`calculated ${dateTime(r.calculated_at)}`}>
+                    <Badge tone={riskTone(r.risk_level)}>{r.risk_level}</Badge>
+                </Tooltip>
+            ),
+        },
+    ];
+
+    const restockColumns: Column<RecommendationItem>[] = [
+        {
+            head: 'Order',
+            key: true,
+            cell: (r) => (
+                <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium text-ink">
+                        <span className="sp-figure text-sm text-brand-700">{number(r.recommended_reorder_qty, 2)}</span>
+                        <span className="text-ink-subtle"> × </span>
+                        {r.entity_name}
+                    </span>
+                    <span className="sp-code">{r.entity_sku ?? r.entity_type}</span>
+                </span>
+            ),
+        },
+        {
+            head: 'Urgency',
+            cell: (r) => <Badge tone={urgencyTone(r.urgency)}>{r.urgency}</Badge>,
+        },
+        {
+            head: 'Why',
+            cell: (r) => <span className="text-xs text-ink-muted">{r.reasoning ?? 'No reasoning recorded.'}</span>,
+            hide: 'lg',
+        },
+        {
+            head: 'Raised',
+            cell: (r) => <span className="sp-code text-xs">{date(r.created_at)}</span>,
+            hide: 'md',
+        },
+        {
+            head: '',
+            align: 'end',
+            actions: true,
+            cell: (r) => {
+                const settled: 'accepted' | 'dismissed' | undefined =
+                    decided[r.id] ?? (r.status === 'pending' ? undefined : r.status);
+
+                if (settled) {
+                    return (
+                        <Badge tone={settled === 'accepted' ? 'green' : 'gray'}>{settled}</Badge>
+                    );
+                }
+
+                return (
+                    <span className="flex items-center justify-end gap-1">
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={actionMutation.isPending}
+                            aria-label={`Dismiss the recommendation for ${r.entity_name}`}
+                            onClick={() => decide(r.id, 'dismissed')}
+                        >
+                            <X className="size-3.5" aria-hidden="true" />
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={actionMutation.isPending}
+                            onClick={() => decide(r.id, 'accepted')}
+                        >
+                            <Check className="size-3.5" aria-hidden="true" />
+                            Approve
+                        </Button>
+                    </span>
+                );
+            },
+        },
+    ];
+
+    const forecastColumns: Column<ForecastEntity>[] = [
+        {
+            head: 'Entity',
+            key: true,
+            cell: (r) => (
+                <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium text-ink">{r.entity_name}</span>
+                    <span className="sp-code">{r.entity_sku ?? r.entity_type}</span>
+                </span>
+            ),
+        },
+        {
+            head: 'Type',
+            cell: (r) => (
+                <Badge tone={r.entity_type === 'item' ? 'purple' : 'blue'}>{r.entity_type}</Badge>
+            ),
+            hide: 'lg',
+        },
+        {
+            head: 'Model',
+            cell: (r) => <span className="sp-code text-xs">{r.model_version}</span>,
+            hide: 'md',
+        },
+        {
+            head: 'Horizon',
+            cell: (r) => (
+                <span className="flex min-w-0 flex-col">
+                    <span className="text-sm text-ink">{r.forecast_days} days</span>
+                    <span className="sp-code text-xs">
+                        {date(r.first_forecast_date)} → {date(r.last_forecast_date)}
+                    </span>
+                </span>
+            ),
+        },
+        {
+            head: 'Total',
+            align: 'end',
+            cell: (r) => (
+                <span className="flex items-baseline justify-end gap-1">
+                    <span className="sp-figure text-sm">{number(r.total_quantity, 1)}</span>
+                    {r.entity_unit && <span className="text-xs text-ink-subtle">{r.entity_unit}</span>}
+                </span>
+            ),
+        },
+        {
+            head: 'Daily avg',
+            align: 'end',
+            cell: (r) => <span className="sp-code">{number(r.daily_average, 2)}/day</span>,
+        },
+        {
+            head: 'Bounds',
+            align: 'end',
+            cell: (r) => (
+                <span className="sp-code text-xs">
+                    {r.lowest_bound != null && r.highest_bound != null
+                        ? `${number(r.lowest_bound, 1)} – ${number(r.highest_bound, 1)}`
+                        : '—'}
+                </span>
+            ),
+            hide: 'lg',
+        },
+    ];
+
+    const seriesColumns: Column<ForecastPoint>[] = [
+        {
+            head: 'Date',
+            key: true,
+            cell: (p) => <span className="sp-code text-xs">{date(p.forecast_date)}</span>,
+        },
+        {
+            head: 'Predicted',
+            align: 'end',
+            cell: (p) => (
+                <span className="sp-figure text-sm text-ink">{number(p.predicted_quantity, 2)}</span>
+            ),
+        },
+        {
+            head: 'Lower',
+            align: 'end',
+            cell: (p) => (
+                <span className="sp-code">{p.lower_bound != null ? number(p.lower_bound, 2) : '—'}</span>
+            ),
+        },
+        {
+            head: 'Upper',
+            align: 'end',
+            cell: (p) => (
+                <span className="sp-code">{p.upper_bound != null ? number(p.upper_bound, 2) : '—'}</span>
+            ),
+        },
+        {
+            head: 'Model',
+            cell: (p) => <span className="sp-code text-xs">{p.model_version}</span>,
+            hide: 'md',
+        },
+    ];
+
+    return (
+        <>
+            <PageHeader
+                title="Forecasting"
+                subtitle="Stockout runway, burn rate and restock decisions computed from your own movement ledger by the PostgreSQL and Python ML pipeline. No external model, no data leaves the workspace."
+                actions={
+                    <>
+                        {isRunning(computeRun) && (
+                            <span className="sp-code text-xs">
+                                {computeRun?.status === 'queued'
+                                    ? 'queued'
+                                    : `run ${computeRun?.id} · ${computeRun?.progress_pct}%`}
+                            </span>
+                        )}
+                        <Badge
+                            dot
+                            tone={pipeline ? (pipeline.status === 'ok' ? 'green' : 'amber') : 'gray'}
+                        >
+                            {pipeline ? (pipeline.status === 'ok' ? 'pipeline current' : 'pipeline stale') : 'pipeline unknown'}
+                        </Badge>
+                        <Button
+                            variant="secondary"
+                            loading={computeMutation.isPending}
+                            disabled={isRunning(computeRun)}
+                            onClick={() => computeMutation.mutate()}
+                        >
+                            <Sparkles className="size-4" aria-hidden="true" />
+                            {isRunning(computeRun) ? 'Computing…' : 'Recompute'}
+                        </Button>
+                    </>
+                }
+            />
+
+            {isRunning(computeRun) && computeRun && (
+                <div className="mb-4 border border-line bg-surface px-3 py-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-subtle">
+                        <span>
+                            {computeRun.status === 'queued'
+                                ? 'Queued — waiting for a worker to pick up the run.'
+                                : `Computing ${computeRun.done_entities} of ${computeRun.total_entities} entities` +
+                                  (computeRun.eta_seconds
+                                      ? ` · about ${Math.ceil(computeRun.eta_seconds / 60)} min left`
+                                      : '')}
+                        </span>
+                        <span className="sp-code">{computeRun.progress_pct}%</span>
+                    </div>
+                    <div className="mt-2">
+                        <Progress value={computeRun.progress_pct} tone="blue" />
+                    </div>
                 </div>
             )}
+
+            <Flash message={computeError} tone="red" />
 
             {pipeline && pipeline.status !== 'ok' && (
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    <span className="font-medium">Forecasts may be stale.</span>{' '}
-                    {pipeline.problems.join(', ')}. Latest feature date:{' '}
-                    {pipeline.last_feature_date ?? 'none'}.
-                </div>
+                <Flash
+                    tone="info"
+                    message={`Forecasts may be stale: ${pipeline.problems.join(', ')}. Latest feature date: ${
+                        pipeline.last_feature_date ?? 'none'
+                    }.`}
+                />
             )}
 
-            {/* Stat Cards */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
-                    label="Critical Stockout Risk"
-                    value={loadingSummary ? '...' : summary?.counts.critical ?? 0}
-                    sub="Runway &lt; 3 days"
+                    label="Critical"
+                    value={loadingSummary ? '—' : number(summary?.counts.critical)}
+                    sub="runway under 3 days"
                     tone="red"
                 />
                 <StatCard
-                    label="Stockout Warnings"
-                    value={loadingSummary ? '...' : summary?.counts.warning ?? 0}
-                    sub="Runway 3–7 days"
+                    label="Warning"
+                    value={loadingSummary ? '—' : number(summary?.counts.warning)}
+                    sub="runway 3 to 7 days"
                     tone="amber"
                 />
                 <StatCard
-                    label="Healthy Inventory Runway"
-                    value={loadingSummary ? '...' : summary?.counts.healthy ?? 0}
-                    sub="Runway &gt; 7 days"
+                    label="Healthy runway"
+                    value={loadingSummary ? '—' : number(summary?.counts.healthy)}
+                    sub="stored risk assessments in the healthy band"
                     tone="green"
                 />
                 <StatCard
-                    label="Urgent Restock Actions"
-                    value={loadingSummary ? '...' : summary?.counts.urgent_recommendations ?? 0}
-                    sub="High priority recommendations"
-                    tone="purple"
+                    label="Open restocks"
+                    value={loadingSummary ? '—' : number(summary?.counts.urgent_recommendations)}
+                    sub="high urgency, pending a decision"
+                    tone="blue"
                 />
             </div>
 
-            {/* Navigation Tabs */}
-            <div className="border-b border-gray-200">
-                <nav className="-mb-px flex space-x-6">
-                    <button
-                        onClick={() => setActiveTab('forecasts')}
-                        className={`border-b-2 pb-3 text-sm font-medium transition ${
-                            activeTab === 'forecasts'
-                                ? 'border-indigo-600 text-indigo-600'
-                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                        }`}
-                    >
-                        Demand Forecasts ({forecastsData?.count ?? 0})
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('risks')}
-                        className={`border-b-2 pb-3 text-sm font-medium transition ${
-                            activeTab === 'risks'
-                                ? 'border-indigo-600 text-indigo-600'
-                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                        }`}
-                    >
-                        Stockout Risk & Runway ({risksData?.risks.length ?? 0})
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('recommendations')}
-                        className={`border-b-2 pb-3 text-sm font-medium transition ${
-                            activeTab === 'recommendations'
-                                ? 'border-indigo-600 text-indigo-600'
-                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                        }`}
-                    >
-                        Smart Restock Recommendations ({recsData?.recommendations.length ?? 0})
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('engine')}
-                        className={`border-b-2 pb-3 text-sm font-medium transition ${
-                            activeTab === 'engine'
-                                ? 'border-indigo-600 text-indigo-600'
-                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                        }`}
-                    >
-                        ML Python Pipeline Status
-                    </button>
-                </nav>
-            </div>
+            <Card bodyClassName="p-0">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2.5">
+                    <Tabs
+                        value={activeTab}
+                        onChange={setActiveTab}
+                        items={[
+                            { id: 'risks' as const, label: 'Risks', count: risksData?.risks.length ?? 0 },
+                            { id: 'restock' as const, label: 'Restock', count: recsData?.recommendations.length ?? 0 },
+                            { id: 'forecast' as const, label: 'Forecast', count: forecastsData?.count ?? 0 },
+                            { id: 'engine' as const, label: 'Engine' },
+                        ]}
+                    />
+                    <span className="sp-code text-xs">
+                        {summary?.last_updated ? `computed ${dateTime(summary.last_updated)}` : 'never computed'}
+                    </span>
+                </div>
 
-            {/* Tab: Demand Forecasts */}
-            {activeTab === 'forecasts' && (
-                <div className="space-y-6">
-                    <Card title="Computed Demand Forecast">
-                        {loadingForecasts ? (
-                            <div className="py-12 text-center"><Spinner className="mx-auto" /></div>
+                <div className="px-3 py-1">
+                    {activeTab === 'risks' &&
+                        (loadingRisks ? (
+                            loading
                         ) : (
-                            <Table
-                                head={['Entity', 'Type', 'Model', 'Horizon', 'Total Units', 'Daily Avg', 'Range']}
+                            <DataTable
+                                columns={riskColumns}
+                                rows={risksData?.risks ?? []}
+                                rowKey={(r) => r.id}
                                 empty={
-                                    !forecastsData?.entities.length ? (
-                                        <EmptyState
-                                            title="No forecasts computed yet"
-                                            hint="Press Compute now to train the models and write a forecast horizon."
-                                        />
-                                    ) : undefined
+                                    <EmptyState
+                                        title="No stockout risks stored"
+                                        hint="A risk is written once the engine has movement history for a component — press Recompute to queue a run."
+                                        icon={<ShieldAlert className="size-5" aria-hidden="true" />}
+                                    />
                                 }
-                            >
-                                {forecastsData?.entities.map((row) => (
-                                    <tr
-                                        key={`${row.entity_type}-${row.entity_id}-${row.model_version}`}
-                                        className="cursor-pointer hover:bg-gray-50"
-                                        onClick={() =>
-                                            setSelected({
-                                                entity_type: row.entity_type,
-                                                entity_id: row.entity_id,
-                                                name: row.entity_name,
-                                            })
-                                        }
-                                    >
-                                        <td className="px-4 py-2">
-                                            <div className="font-medium text-gray-900">{row.entity_name}</div>
-                                            {row.entity_sku && (
-                                                <div className="text-xs text-gray-400">SKU: {row.entity_sku}</div>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-2">
-                                            <span className="capitalize text-xs text-gray-500">{row.entity_type}</span>
-                                        </td>
-                                        <td className="px-4 py-2">
-                                            <span className="rounded bg-indigo-50 px-2 py-0.5 font-mono text-xs text-indigo-700">
-                                                {row.model_version}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-2 text-xs text-gray-600">
-                                            {row.forecast_days} days
-                                            <div className="text-gray-400">
-                                                {String(row.first_forecast_date).slice(0, 10)} →{' '}
-                                                {String(row.last_forecast_date).slice(0, 10)}
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-2 font-medium text-gray-900">
-                                            {Number(row.total_quantity).toFixed(1)} {row.entity_unit}
-                                        </td>
-                                        <td className="px-4 py-2 text-gray-700">
-                                            {Number(row.daily_average).toFixed(2)} / day
-                                        </td>
-                                        <td className="px-4 py-2 text-xs text-gray-500">
-                                            {row.lowest_bound != null && row.highest_bound != null
-                                                ? `${Number(row.lowest_bound).toFixed(1)} – ${Number(row.highest_bound).toFixed(1)}`
-                                                : '—'}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </Table>
-                        )}
-                    </Card>
+                            />
+                        ))}
 
-                    {selected && (
-                        <Card title={`Daily series — ${selected.name}`}>
-                            {loadingSeries ? (
-                                <div className="py-8 text-center"><Spinner className="mx-auto" /></div>
+                    {activeTab === 'restock' && (
+                        <>
+                            {actionMutation.isError && (
+                                <Flash message={errMsg(actionMutation.error)} tone="red" />
+                            )}
+                            {loadingRecs ? (
+                                loading
                             ) : (
-                                <Table
-                                    head={['Date', 'Predicted', 'Lower', 'Upper', 'Model']}
+                                <DataTable
+                                    columns={restockColumns}
+                                    rows={recsData?.recommendations ?? []}
+                                    rowKey={(r) => r.id}
                                     empty={
                                         <EmptyState
-                                            title="No forecast days for this entity"
-                                            hint="The model produced an empty horizon for this entity."
+                                            title="Nothing needs restocking"
+                                            hint="A recommendation appears when a component's runway drops under its reorder point — press Recompute to recompute the model."
+                                            icon={<PackageCheck className="size-5" aria-hidden="true" />}
                                         />
                                     }
-                                >
-                                    {seriesData?.forecasts.map((point) => (
-                                        <tr key={point.id} className="hover:bg-gray-50">
-                                            <td className="px-4 py-2 text-gray-900">
-                                                {String(point.forecast_date).slice(0, 10)}
-                                            </td>
-                                            <td className="px-4 py-2 font-medium text-gray-900">
-                                                {Number(point.predicted_quantity).toFixed(2)}
-                                            </td>
-                                            <td className="px-4 py-2 text-gray-500">
-                                                {point.lower_bound != null
-                                                    ? Number(point.lower_bound).toFixed(2)
-                                                    : '—'}
-                                            </td>
-                                            <td className="px-4 py-2 text-gray-500">
-                                                {point.upper_bound != null
-                                                    ? Number(point.upper_bound).toFixed(2)
-                                                    : '—'}
-                                            </td>
-                                            <td className="px-4 py-2 font-mono text-xs text-indigo-700">
-                                                {point.model_version}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </Table>
+                                />
                             )}
-                        </Card>
+                        </>
                     )}
-                </div>
-            )}
 
-            {/* Tab: Stockout Risks */}
-            {activeTab === 'risks' && (
-                <Card title="Inventory Depletion Runway">
-                    {loadingRisks ? (
-                        <div className="py-12 text-center"><Spinner className="mx-auto" /></div>
-                    ) : (
-                        <Table
-                            head={['Entity', 'Type', 'Current Stock', 'Daily Burn Rate', 'Runway Remaining', 'Est. Stockout Date', 'Risk Level']}
-                            empty={
-                                !risksData?.risks.length ? (
-                                    <EmptyState
-                                        title="No active stockout risks detected"
-                                        hint="As sales and movements record, the forecasting engine computes burn rates and runway estimates."
-                                    />
-                                ) : undefined
-                            }
-                        >
-                            {risksData?.risks.map((risk) => (
-                                <tr key={risk.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-2">
-                                        <div className="font-medium text-gray-900">{risk.entity_name}</div>
-                                        {risk.entity_sku && <div className="text-xs text-gray-400">SKU: {risk.entity_sku}</div>}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        <span className="capitalize text-xs text-gray-500">{risk.entity_type}</span>
-                                    </td>
-                                    <td className="px-4 py-2">{risk.current_stock} {risk.entity_unit}</td>
-                                    <td className="px-4 py-2">{risk.daily_burn_rate} / day</td>
-                                    <td className="px-4 py-2">
-                                        {risk.days_until_stockout != null
-                                            ? `${risk.days_until_stockout} days`
-                                            : '—'}
-                                    </td>
-                                    <td className="px-4 py-2">{risk.estimated_stockout_date ?? 'Indefinite'}</td>
-                                    <td className="px-4 py-2">
-                                        <Badge
-                                            tone={
-                                                risk.risk_level === 'critical'
-                                                    ? 'red'
-                                                    : risk.risk_level === 'warning'
-                                                    ? 'amber'
-                                                    : 'green'
-                                            }
-                                        >
-                                            {risk.risk_level.toUpperCase()}
-                                        </Badge>
-                                    </td>
-                                </tr>
-                            ))}
-                        </Table>
-                    )}
-                </Card>
-            )}
+                    {activeTab === 'forecast' && (
+                        <>
+                            {loadingForecasts ? (
+                                loading
+                            ) : (
+                                <DataTable
+                                    columns={forecastColumns}
+                                    rows={forecastsData?.entities ?? []}
+                                    rowKey={forecastRowKey}
+                                    activeKey={activeForecastKey}
+                                    onRowClick={(row) =>
+                                        setSelected({
+                                            entity_type: row.entity_type,
+                                            entity_id: row.entity_id,
+                                            name: row.entity_name,
+                                        })
+                                    }
+                                    empty={
+                                        <EmptyState
+                                            title="No forecast horizon stored"
+                                            hint="Press Recompute to queue a run; the model writes one daily horizon per component and product."
+                                            icon={<Sparkles className="size-5" aria-hidden="true" />}
+                                        />
+                                    }
+                                />
+                            )}
 
-            {/* Tab: Restock Recommendations */}
-            {activeTab === 'recommendations' && (
-                <Card title="Prescriptive Restock Recommendations">
-                    {loadingRecs ? (
-                        <div className="py-12 text-center"><Spinner className="mx-auto" /></div>
-                    ) : !recsData?.recommendations.length ? (
-                        <EmptyState
-                            title="All inventory recommendations are up to date"
-                            hint="As the Python engine processes historical lead times and sales trends, suggestions will appear here."
-                        />
-                    ) : (
-                        <div className="space-y-4">
-                            {recsData.recommendations.map((rec) => (
-                                <div
-                                    key={rec.id}
-                                    className="flex flex-col justify-between gap-4 rounded-lg border border-gray-200 p-4 sm:flex-row sm:items-center"
-                                >
-                                    <div className="space-y-1">
-                                        <div className="flex items-center gap-2">
-                                            <h4 className="font-semibold text-gray-900">{rec.entity_name}</h4>
-                                            <Badge tone={rec.urgency === 'high' ? 'red' : rec.urgency === 'medium' ? 'amber' : 'blue'}>
-                                                {rec.urgency.toUpperCase()} URGENCY
-                                            </Badge>
-                                            <span className="text-xs text-gray-400 capitalize">({rec.entity_type})</span>
+                            {selected && (
+                                <div className="mt-3 border border-line bg-surface-sunken p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-semibold text-ink">
+                                                Daily series — {selected.name}
+                                            </div>
+                                            <div className="sp-code mt-0.5">
+                                                {seriesData?.count ?? 0} forecast days, {selected.entity_type}
+                                            </div>
                                         </div>
-                                        <p className="text-sm text-gray-600">
-                                            Recommended Batch: <span className="font-bold text-indigo-700">{rec.recommended_reorder_qty} {rec.entity_unit}</span>
-                                        </p>
-                                        {rec.reasoning && (
-                                            <p className="text-xs italic text-gray-500">“{rec.reasoning}”</p>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => setSelected(null)}
+                                            aria-label="Hide the daily series"
+                                        >
+                                            <X className="size-3.5" aria-hidden="true" />
+                                            Hide
+                                        </Button>
+                                    </div>
+                                    <div className="mt-2">
+                                        {loadingSeries ? (
+                                            <div className="grid place-items-center py-6">
+                                                <Spinner className="size-5 text-ink-subtle" />
+                                            </div>
+                                        ) : (
+                                            <DataTable
+                                                columns={seriesColumns}
+                                                rows={seriesData?.forecasts ?? []}
+                                                rowKey={(p) => p.id}
+                                                empty={
+                                                    <EmptyState
+                                                        title="No forecast days for this entity"
+                                                        hint="The stored horizon is empty. A completed recompute writes one row per day per entity, so run it again or pick another row."
+                                                        icon={<Sparkles className="size-5" aria-hidden="true" />}
+                                                    />
+                                                }
+                                            />
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            size="sm"
-                                            variant="secondary"
-                                            onClick={() => actionMutation.mutate({ id: rec.id, status: 'dismissed' })}
-                                        >
-                                            Dismiss
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="primary"
-                                            onClick={() => actionMutation.mutate({ id: rec.id, status: 'accepted' })}
-                                        >
-                                            Approve Purchase
-                                        </Button>
-                                    </div>
                                 </div>
-                            ))}
+                            )}
+                        </>
+                    )}
+
+                    {activeTab === 'engine' && (
+                        <div className="grid gap-3 py-3 sm:grid-cols-2">
+                            <dl className="border border-line p-3">
+                                <dt className="text-xs text-ink-subtle">Burn rate</dt>
+                                <dd className="mt-1 text-sm text-ink">
+                                    Mean daily consumption per component, taken from confirmed deductions in
+                                    your movement ledger over the window the job loads. Stored on the risk row
+                                    as daily_burn_rate.
+                                </dd>
+                            </dl>
+                            <dl className="border border-line p-3">
+                                <dt className="text-xs text-ink-subtle">Runway</dt>
+                                <dd className="mt-1 text-sm text-ink">
+                                    Current stock divided by burn rate, stored as days_until_stockout. When no
+                                    burn has been observed the value is null, so no stockout date is claimed.
+                                </dd>
+                            </dl>
+                            <dl className="border border-line p-3">
+                                <dt className="text-xs text-ink-subtle">Reorder point</dt>
+                                <dd className="mt-1 text-sm text-ink">
+                                    Burn rate multiplied by supplier lead time, so a restock lands before the
+                                    shelf empties. Crossing it raises a recommendation with a reorder quantity
+                                    and a reasoning line.
+                                </dd>
+                            </dl>
+                            <dl className="border border-line p-3">
+                                <dt className="text-xs text-ink-subtle">Data source</dt>
+                                <dd className="mt-1 text-sm text-ink">
+                                    Your own database only: daily features, demand forecasts and stockout risks
+                                    written by the Python job and read back through this API. Nothing is sent
+                                    anywhere for analysis.
+                                </dd>
+                            </dl>
+
+                            {pipeline && (
+                                <div className="border border-line bg-surface-sunken p-3 sm:col-span-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <Badge dot tone={pipeline.status === 'ok' ? 'green' : 'amber'}>
+                                            {pipeline.status === 'ok' ? 'current' : 'stale'}
+                                        </Badge>
+                                        <span className="sp-code text-xs">
+                                            features {date(pipeline.last_feature_date)}
+                                        </span>
+                                        {pipeline.feature_lag_days != null && (
+                                            <span className="sp-code text-xs">
+                                                lag {number(pipeline.feature_lag_days, 0)} d
+                                            </span>
+                                        )}
+                                        <span className="sp-code text-xs">
+                                            {number(pipeline.forecast_rows, 0)} forecast rows
+                                        </span>
+                                        <span className="sp-code text-xs">
+                                            {number(pipeline.past_forecast_rows, 0)} past rows
+                                        </span>
+                                        {pipeline.forecast_age_hours != null && (
+                                            <span className="sp-code text-xs">
+                                                written {number(pipeline.forecast_age_hours, 1)} h ago
+                                            </span>
+                                        )}
+                                        <span className="sp-code text-xs">
+                                            horizon {date(pipeline.first_forecast_date)} → {date(pipeline.last_forecast_date)}
+                                        </span>
+                                    </div>
+                                    {pipeline.problems.length > 0 && (
+                                        <div className="mt-1.5 text-xs text-ink-muted">
+                                            {pipeline.problems.join(' · ')}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
-                </Card>
-            )}
-
-            {/* Tab: Python ML Architecture Status */}
-            {activeTab === 'engine' && (
-                <div className="space-y-6">
-                    <Card title="Python ML Forecasting Service Contract">
-                        <div className="space-y-4 text-sm text-gray-600">
-                            <p>
-                                The StockPilot PostgreSQL database is equipped with dedicated ML tables. A standalone Python forecasting server or cron batch process connects directly to Supabase to read sales velocity and compute forecasts:
-                            </p>
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                                <div className="rounded-md border border-gray-100 bg-gray-50 p-3">
-                                    <div className="font-mono text-xs font-bold text-indigo-600">sp_demand_forecasts</div>
-                                    <p className="mt-1 text-xs text-gray-500">
-                                        Time-series daily/weekly consumption volumes with 95% confidence bounds.
-                                    </p>
-                                </div>
-                                <div className="rounded-md border border-gray-100 bg-gray-50 p-3">
-                                    <div className="font-mono text-xs font-bold text-indigo-600">sp_stockout_risks</div>
-                                    <p className="mt-1 text-xs text-gray-500">
-                                        Dynamic daily burn rate calculations and stockout runway horizons.
-                                    </p>
-                                </div>
-                                <div className="rounded-md border border-gray-100 bg-gray-50 p-3">
-                                    <div className="font-mono text-xs font-bold text-indigo-600">sp_restock_recommendations</div>
-                                    <p className="mt-1 text-xs text-gray-500">
-                                        Economic Order Quantity (EOQ) and safety stock replenishment actions.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </Card>
                 </div>
-            )}
-        </div>
+            </Card>
+        </>
     );
 }
