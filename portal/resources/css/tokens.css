@@ -1,0 +1,169 @@
+/*
+ * StockPilot — Wayfind tokens (marketing shell) plus the shared scale.
+ * Every colour and face in the marketing page resolves here; a literal anywhere else is a bug.
+ * The signed-in app keeps its indigo system in index.css.
+ */
+:root {
+    --font-display: 'Chivo Mono', ui-monospace, 'Cascadia Mono', Menlo, monospace;
+    --font-body: var(--font-display);
+    --font-outlier: var(--font-body);
+
+    /* Wayfind: platform colourway. Paper, ink, rules, one cobalt signal, amber figures on ink. */
+    --wf-paper: oklch(95.5% 0.006 250);
+    --wf-paper-2: oklch(91% 0.009 250);
+    --wf-paper-3: oklch(99.5% 0.005 250);
+    --wf-ink: oklch(16% 0.014 262);
+    --wf-ink-2: oklch(29% 0.014 262);
+    --wf-muted: oklch(47% 0.016 260);
+    --wf-rule: oklch(80% 0.011 250);
+    --wf-ink-rule: oklch(34% 0.014 262);
+    --wf-accent: oklch(51% 0.22 264);
+    --wf-accent-hover: oklch(45% 0.215 264);
+    --wf-accent-2: oklch(81% 0.16 82);
+    --wf-accent-ink: oklch(99.5% 0.003 250);
+    --wf-focus: oklch(51% 0.22 264);
+    --wf-plate: oklch(16% 0.014 262);
+    --wf-plate-2: oklch(21% 0.014 262);
+    --wf-plate-ink: oklch(95.5% 0.006 250);
+    --wf-plate-muted: oklch(80% 0.012 250);
+    --wf-plate-rule: oklch(34% 0.014 262);
+    --wf-figure: oklch(81% 0.16 82);
+
+    /*
+     * Y Combinator's own orange, used only by the badge mark. A brand colour is a
+     * named token like any other, so it is declared here rather than inlined, and
+     * it does not move between themes (a brand hue is not a theme decision).
+     */
+    --mark-yc: #ff6600;
+    --mark-yc-ink: oklch(99.5% 0.003 250);
+
+    /* Shared scale */
+    --text-xs: 0.8125rem;
+    --text-sm: 0.875rem;
+    --text-md: 1rem;
+    --text-lg: 1.25rem;
+    --text-xl: 1.5625rem;
+    --text-2xl: 1.953rem;
+    --text-3xl: 2.441rem;
+    --text-section: clamp(2rem, 2.4vw + 1rem, 3.25rem);
+    --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem);
+    --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+    --space-3xs: 2px;
+    --space-2xs: 4px;
+    --space-xs: 8px;
+    --space-sm: 12px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 40px;
+    --space-2xl: 64px;
+    --space-3xl: 96px;
+    --space-4xl: 144px;
+
+    --dur-micro: 120ms;
+    --dur-short: 220ms;
+    --dur-long: 420ms;
+
+    --container: 1440px;
+    --gutter: 64px;
+    --gap-columns: 32px;
+
+    --z-base: 1;
+    --z-raised: 10;
+    --z-dropdown: 100;
+    --z-sticky: 200;
+    --z-sticky-nav: 300;
+    --z-modal: 400;
+    --z-toast: 500;
+    --z-tooltip: 600;
+
+    --rule-hair: 1px;
+    --rule-bar: 2px;
+    --tracking-display: -0.03em;
+
+    color-scheme: light;
+}
+
+/* Wayfind `night`: paper and ink swap, cobalt lifts, amber holds. */
+:root.dark {
+    --wf-paper: oklch(15% 0.012 262);
+    --wf-paper-2: oklch(20% 0.014 262);
+    --wf-paper-3: oklch(24% 0.014 262);
+    --wf-ink: oklch(96% 0.005 250);
+    --wf-ink-2: oklch(86% 0.006 250);
+    --wf-muted: oklch(72% 0.01 250);
+    --wf-rule: oklch(32% 0.014 262);
+    --wf-ink-rule: oklch(46% 0.014 262);
+    --wf-accent: oklch(66% 0.19 264);
+    --wf-accent-hover: oklch(72% 0.18 264);
+    --wf-accent-ink: oklch(14% 0.012 262);
+    --wf-focus: oklch(66% 0.19 264);
+    --wf-plate: oklch(11% 0.012 262);
+    --wf-plate-2: oklch(17% 0.013 262);
+    --wf-plate-ink: oklch(96% 0.005 250);
+    --wf-plate-muted: oklch(78% 0.012 250);
+    --wf-plate-rule: oklch(32% 0.014 262);
+    --wf-figure: oklch(84% 0.15 82);
+    color-scheme: dark;
+}
+
+/*
+ * Signed-in app surfaces. Same paper and ink as the marketing page, and the
+ * same contract: every colour the app draws resolves to one of these.
+ */
+:root {
+    --sp-surface: oklch(99.5% 0.005 250);
+    --sp-surface-raised: oklch(99.5% 0.005 250);
+    --sp-surface-sunken: oklch(95.5% 0.006 250);
+    --sp-line: oklch(80% 0.011 250);
+    --sp-line-strong: oklch(16% 0.014 262);
+    /* A field's edge must clear 3:1 against every surface, light or dark (40). */
+    --sp-field-line: oklch(60% 0.014 258);
+    --sp-focus: oklch(58% 0.21 264);
+    --sp-ink: oklch(16% 0.014 262);
+    --sp-ink-muted: oklch(40% 0.016 260);
+    --sp-ink-subtle: oklch(46% 0.016 260);
+    --sp-figure: oklch(81% 0.16 82);
+    --sp-plate: oklch(16% 0.014 262);
+    --sp-plate-ink: oklch(95.5% 0.006 250);
+    --sp-danger: oklch(46% 0.19 26);
+    --sp-danger-surface: oklch(96% 0.022 26);
+    --sp-positive: oklch(45% 0.12 158);
+    color-scheme: light;
+}
+
+:root.dark {
+    --sp-surface: oklch(24% 0.014 262);
+    --sp-surface-raised: oklch(24% 0.014 262);
+    --sp-surface-sunken: oklch(15% 0.012 262);
+    --sp-line: oklch(32% 0.014 262);
+    --sp-line-strong: oklch(72% 0.012 250);
+    --sp-field-line: oklch(58% 0.014 258);
+    --sp-focus: oklch(60% 0.2 264);
+    --sp-ink: oklch(96% 0.005 250);
+    --sp-ink-muted: oklch(74% 0.012 250);
+    --sp-ink-subtle: oklch(70% 0.012 250);
+    --sp-figure: oklch(84% 0.15 82);
+    --sp-plate: oklch(11% 0.012 262);
+    --sp-plate-ink: oklch(96% 0.005 250);
+    --sp-danger: oklch(75% 0.16 26);
+    --sp-danger-surface: oklch(28% 0.06 26);
+    --sp-positive: oklch(78% 0.14 158);
+    color-scheme: dark;
+}
+
+@media (max-width: 60rem) {
+    :root {
+        --gutter: 24px;
+    }
+}
+
+@media (max-width: 40rem) {
+    :root {
+        --gutter: 16px;
+    }
+}

@@ -1,0 +1,175 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: Wayfind (carried from the landing) · scope: app · redesign: full
+ * nav: a 15rem rail on a 2px ink edge and a 56px topbar, both collapsing to a drawer under 60rem · signature: the plate, an ink field carrying one figure · states: loading, empty, error, full
+ * wayfind: platform colourway, cobalt signal, amber only on ink · posture: committed · surface: bordered · contrast: pass · fold: n/a · v2.0.0
+ * carriers: Instrument Sans for text, Chivo Mono for figures, SKUs and timestamps · mono is load-bearing, never costume (64) */
+/* Hallmark · pre-emit critique: P4 H5 E4 S4 R5 V5 · weakest: P, the shell carried more chrome than the work it frames, so the rail lost a label weight and the topbar lost a divider */
+
+/*
+ * StockPilot app shell — Wayfind.
+ * Depth is borders, so index.css sets every --radius-* to 0 and does the rest.
+ * This file holds only what a utility class cannot express cleanly: the rail
+ * link's current-page edge, the command trigger, and the ink plate.
+ */
+
+/* Rail link: a 36px row with an 18px icon and a sentence-case label. */
+.sp-rail-link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: 36px;
+    margin-inline: var(--space-xs);
+    margin-block: var(--space-3xs);
+    padding: var(--space-xs);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--sp-ink-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition:
+        color var(--dur-micro) steps(1),
+        background-color var(--dur-micro) steps(1);
+}
+
+.sp-rail-link:hover {
+    background: var(--sp-surface);
+    color: var(--sp-ink);
+}
+
+/* Pressed: the fill steps down rather than scaling, so nothing reflows. */
+.sp-rail-link:active {
+    background: var(--sp-surface-sunken);
+}
+
+.sp-rail-link[aria-current='page'] {
+    background: var(--sp-surface);
+    border-left-color: var(--color-brand-600);
+    color: var(--sp-ink);
+    font-weight: 600;
+}
+
+/* Icon-only rail: the label leaves, the 36px target and its centring stay. */
+.sp-rail-link--compact {
+    justify-content: center;
+    margin-inline: var(--space-xs);
+    padding-inline: 0;
+}
+
+/* The command trigger reads as a field, because it opens one. */
+.sp-command-trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-height: 36px;
+    padding: 0 var(--space-xs);
+    background: var(--sp-surface-sunken);
+    border: 2px solid var(--sp-field-line);
+    color: var(--sp-ink-subtle);
+    font-size: 0.8125rem;
+    text-align: left;
+    transition:
+        border-color var(--dur-micro) steps(1),
+        color var(--dur-micro) steps(1);
+}
+
+.sp-command-trigger:hover {
+    border-color: var(--sp-ink-muted);
+    color: var(--sp-ink);
+}
+
+.sp-command-trigger:active {
+    background: var(--sp-line);
+}
+
+/* A keycap: mono, because it is a key. */
+.sp-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.75rem;
+    height: 1.125rem;
+    padding-inline: var(--space-2xs);
+    border: 1px solid var(--sp-line);
+    background: var(--sp-surface);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1;
+}
+
+/* Figures, SKUs, keys and timestamps: mono, tabular, tight. */
+.sp-figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1;
+}
+
+.sp-code {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8125rem;
+    color: var(--sp-ink-muted);
+}
+
+/* The plate: one ink field per page, paper text, amber figure. */
+.sp-plate {
+    background: var(--sp-plate);
+    color: var(--sp-plate-ink);
+    border: 2px solid var(--sp-line-strong);
+}
+
+/*
+ * One focus ring for the whole app, at 3:1 or better on every surface in both
+ * themes. Declared here with enough weight that no utility can leave a control
+ * with `outline-color: currentColor`, which is invisible on paper.
+ */
+:focus-visible {
+    outline: 2px solid var(--sp-focus);
+    outline-offset: 2px;
+}
+
+.sp-shell :focus-visible,
+main :focus-visible,
+header :focus-visible,
+aside :focus-visible {
+    outline: 2px solid var(--sp-focus);
+    outline-offset: 2px;
+}
+
+/* A checkbox and a switch are small; expand the hit target to 44px without
+   growing the drawn control. */
+.sp-hit {
+    position: relative;
+}
+
+.sp-hit::after {
+    content: '';
+    position: absolute;
+    inset: calc(-1 * var(--space-md) + var(--space-3xs));
+}
+
+/* A selected cell fills ink; the cobalt edge marks it as the current one. */
+.sp-cell-on {
+    background: var(--sp-plate);
+    color: var(--sp-plate-ink);
+    box-shadow: inset 2px 0 0 0 var(--color-brand-600);
+}
+
+.sp-plate .sp-figure {
+    color: var(--sp-figure);
+}
+
+.sp-plate .sp-code {
+    color: var(--sp-figure);
+    opacity: 0.85;
+}
+
+/* A checkbox or a lone icon is small; the row it sits in carries the 44px target. */
+.sp-hit-row {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: var(--space-2xs);
+}
