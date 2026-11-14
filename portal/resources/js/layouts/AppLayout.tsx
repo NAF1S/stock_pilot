@@ -45,19 +45,14 @@ const SYSTEM_NAV = [
     { to: '/app/users', label: 'Team', icon: Users, adminOnly: true },
 ] as const;
 
-const TITLES: Record<string, string> = {
-    '/app': 'Dashboard',
-    '/app/items': 'Items',
-    '/app/products': 'Products & Recipes',
-    '/app/orders': 'Orders',
-    '/app/movements': 'Movements',
-    '/app/forecasts': 'AI Forecasting',
-    '/app/activity': 'Activity',
-    '/app/reports': 'Reports',
-    '/app/stores': 'Stores',
-    '/app/settings': 'Settings',
-    '/app/users': 'Team',
-};
+const TITLES: Record<string, string> = Object.fromEntries(
+    [...NAV, ...SYSTEM_NAV].map((item) => [item.to, item.label]),
+);
+
+const RAIL_SLOT =
+    'flex w-full justify-center ' +
+    '[&_[role=tooltip]]:top-1/2 [&_[role=tooltip]]:left-full [&_[role=tooltip]]:bottom-auto ' +
+    '[&_[role=tooltip]]:mb-0 [&_[role=tooltip]]:ml-2 [&_[role=tooltip]]:-translate-y-1/2 [&_[role=tooltip]]:translate-x-0';
 
 function titleFor(pathname: string): string {
     if (TITLES[pathname]) return TITLES[pathname];
@@ -119,6 +114,11 @@ export default function AppLayout() {
         };
     }, [userMenu]);
 
+    const closeDrawer = () => {
+        drawerTriggerRef.current?.focus();
+        setDrawerOpen(false);
+    };
+
     useEffect(() => {
         if (!drawerOpen) return;
         const prev = document.body.style.overflow;
@@ -126,6 +126,8 @@ export default function AppLayout() {
 
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
+                e.preventDefault();
+                drawerTriggerRef.current?.focus();
                 setDrawerOpen(false);
                 return;
             }
@@ -154,7 +156,6 @@ export default function AppLayout() {
             document.body.style.overflow = prev;
             document.removeEventListener('keydown', onKey);
             cancelAnimationFrame(raf);
-            drawerTriggerRef.current?.focus();
         };
     }, [drawerOpen]);
 
@@ -174,15 +175,15 @@ export default function AppLayout() {
 
             if (compact) {
                 return (
-                    <div key={item.to} className="flex w-full justify-center">
+                    <div key={item.to} className={RAIL_SLOT}>
                         <Tooltip label={item.label}>
                             <NavLink
                                 to={item.to}
                                 end={end}
                                 aria-label={item.label}
-                                className="sp-rail-link sp-rail-link--compact mx-0 w-11"
+                                className="sp-rail-link sp-rail-link--compact w-11"
                             >
-                                <Icon className="size-[18px]" aria-hidden="true" />
+                                <Icon className="size-4.5" aria-hidden="true" />
                             </NavLink>
                         </Tooltip>
                     </div>
@@ -191,7 +192,7 @@ export default function AppLayout() {
 
             return (
                 <NavLink key={item.to} to={item.to} end={end} onClick={onNavigate} className="sp-rail-link">
-                    <Icon className="size-[18px]" aria-hidden="true" />
+                    <Icon className="size-4.5" aria-hidden="true" />
                     <span className="truncate">{item.label}</span>
                 </NavLink>
             );
@@ -204,7 +205,7 @@ export default function AppLayout() {
                 <div className="fixed inset-0 z-50 md:hidden">
                     <div
                         className="absolute inset-0 bg-ink/50"
-                        onClick={() => setDrawerOpen(false)}
+                        onClick={closeDrawer}
                         aria-hidden="true"
                     />
                     <aside
@@ -212,13 +213,13 @@ export default function AppLayout() {
                         role="dialog"
                         aria-modal="true"
                         aria-label="Navigation"
-                        className="absolute inset-y-0 left-0 flex w-[17rem] flex-col border-r-2 border-line-strong bg-surface"
+                        className="absolute inset-y-0 left-0 flex w-68 flex-col border-r-2 border-line-strong bg-surface"
                     >
                         <div className="flex h-14 shrink-0 items-center justify-between border-b-2 border-line-strong px-4">
                             <Logo size="sm" />
                             <button
                                 type="button"
-                                onClick={() => setDrawerOpen(false)}
+                                onClick={closeDrawer}
                                 aria-label="Close navigation"
                                 className="grid size-9 place-items-center text-ink-subtle hover:bg-surface-sunken hover:text-ink"
                             >
@@ -258,7 +259,7 @@ export default function AppLayout() {
             <aside
                 className={cn(
                     'sticky top-0 hidden h-screen shrink-0 flex-col border-r-2 border-line-strong bg-surface-sunken md:flex',
-                    collapsed ? 'w-[4.25rem]' : 'w-[15rem]',
+                    collapsed ? 'w-17' : 'w-60',
                 )}
             >
                 <div
@@ -303,25 +304,49 @@ export default function AppLayout() {
                     </div>
                 )}
 
-                <nav className="flex-1 overflow-y-auto py-2" aria-label="Main">
+                <nav
+                    className={cn('min-h-0 flex-1 py-2', collapsed ? 'overflow-visible' : 'overflow-y-auto')}
+                    aria-label="Main"
+                >
                     {renderNav(collapsed)}
                 </nav>
 
-                <div className="shrink-0 border-t border-line py-2">
+                <div
+                    className={cn(
+                        'shrink-0 border-t border-line py-2',
+                        collapsed ? 'flex justify-center' : 'px-3',
+                    )}
+                >
                     {collapsed ? (
-                        <div className="flex w-full justify-center py-1">
-                            <Tooltip label={user?.name ?? 'Account'}>
-                                <Avatar name={user?.name ?? 'User'} className="size-7" />
+                        <div className={cn('w-full', RAIL_SLOT)}>
+                            <Tooltip label="Sign out">
+                                <button
+                                    type="button"
+                                    onClick={handleLogout}
+                                    aria-label="Sign out"
+                                    className="sp-rail-link sp-rail-link--compact w-11 text-ink-subtle hover:text-danger"
+                                >
+                                    <LogOut className="size-4.5" aria-hidden="true" />
+                                </button>
                             </Tooltip>
                         </div>
                     ) : (
-                        <div className="flex items-center gap-2.5 px-3 py-1.5">
-                            <Avatar name={user?.name ?? 'User'} className="size-7" />
-                            <div className="min-w-0">
-                                <div className="truncate text-xs font-semibold text-ink">{user?.name}</div>
-                                <div className="truncate text-xs text-ink-subtle capitalize">{user?.role}</div>
+                        <>
+                            <div className="flex items-center gap-2.5">
+                                <Avatar name={user?.name ?? 'User'} className="size-7" />
+                                <div className="min-w-0">
+                                    <div className="truncate text-xs font-semibold text-ink">{user?.name}</div>
+                                    <div className="truncate text-xs text-ink-subtle capitalize">{user?.role}</div>
+                                </div>
                             </div>
-                        </div>
+                            <button
+                                type="button"
+                                onClick={handleLogout}
+                                className="mt-2 flex min-h-9 w-full items-center gap-2 px-2 text-xs font-semibold text-ink-muted hover:bg-surface hover:text-danger"
+                            >
+                                <LogOut className="size-3.5" aria-hidden="true" /> Sign out
+                            </button>
+                        </>
                     )}
                 </div>
             </aside>
@@ -342,7 +367,9 @@ export default function AppLayout() {
                         <Logo size="sm" showText={false} />
                     </div>
 
-                    <span className="hidden shrink-0 text-sm font-semibold text-ink sm:block">{title}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink sm:flex-none">
+                        {title}
+                    </span>
                     <span className="hidden h-5 w-px shrink-0 bg-line sm:block" aria-hidden="true" />
 
                     <div className="hidden min-w-0 flex-1 sm:flex">
@@ -426,7 +453,7 @@ export default function AppLayout() {
                 </header>
 
                 <main className="min-w-0 flex-1 px-4 py-5 sm:px-5 sm:py-6">
-                    <div className="mx-auto w-full max-w-[100rem]">
+                    <div className="mx-auto w-full max-w-screen-2xl">
                         <Outlet />
                     </div>
                 </main>
