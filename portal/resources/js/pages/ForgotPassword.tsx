@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { CheckCircle2, Mail } from 'lucide-react';
 import { getCsrfCookie } from '../bootstrap';
 import { apiPost, errMsg } from '../lib/api';
-import { Button, Card, Flash, Input } from '../components/ui';
+import { AuthLayout } from '../layouts/AuthLayout';
+import { Button, Flash, Input } from '../components/ui';
 
 const GENERIC_MESSAGE =
     'If an account exists for that email address, a password reset link is on its way.';
@@ -29,56 +31,70 @@ export default function ForgotPassword() {
     };
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
-            <div className="w-full max-w-sm">
-                <div className="mb-6 text-center">
-                    <div className="text-2xl font-bold text-indigo-700">StockPilot</div>
-                    <p className="text-sm text-gray-500">Reset your password</p>
-                </div>
-                <Card>
-                    {message ? (
-                        <div className="space-y-4">
-                            <Flash message={message} tone="green" />
-                            <p className="text-xs text-gray-500">
-                                The link expires in one hour and can only be used once. Didn&apos;t get it? Check
-                                your spam folder, then try again.
-                            </p>
-                            <Link
-                                to="/login"
-                                className="block text-center text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                            >
-                                Back to sign in
-                            </Link>
+        <AuthLayout
+            title={message ? 'Check your inbox' : 'Reset your password'}
+            subtitle={
+                message
+                    ? 'If an account exists for that email, a reset link is on its way.'
+                    : 'Enter the email address you sign in with and we’ll send you a reset link.'
+            }
+            backTo="/login"
+            backLabel="Back to sign in"
+            footer={
+                <>
+                    Remembered it?{' '}
+                    <Link to="/login" className="font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-300">
+                        Back to sign in
+                    </Link>
+                </>
+            }
+        >
+            <div className="border-2 border-line bg-surface p-4 sm:p-5">
+                {message ? (
+                    <div className="space-y-3">
+                        <div className="flex size-10 items-center justify-center border border-line border-l-2 border-l-positive bg-surface-sunken text-positive">
+                            <CheckCircle2 className="size-5" aria-hidden="true" />
                         </div>
-                    ) : (
-                        <form onSubmit={submit} className="space-y-3">
-                            <Flash message={error} tone="red" />
-                            <p className="text-xs text-gray-500">
-                                Enter the email address you use to sign in and we&apos;ll send you a reset link.
-                            </p>
-                            <Input
-                                label="Email"
-                                type="email"
-                                required
-                                autoFocus
-                                autoComplete="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                            />
-                            <Button type="submit" className="w-full" loading={loading}>
-                                Send reset link
-                            </Button>
-
-                            <div className="pt-2 text-center text-xs text-gray-500">
-                                Remembered it?{' '}
-                                <Link to="/login" className="font-semibold text-indigo-600 hover:text-indigo-800">
-                                    Sign in
-                                </Link>
-                            </div>
-                        </form>
-                    )}
-                </Card>
+                        <Flash message={message} tone="green" />
+                        <p className="text-sm leading-relaxed text-ink-muted">
+                            We sent a reset link to <span className="font-semibold text-ink">{email}</span>. It
+                            expires in one hour and can only be used once.
+                        </p>
+                        <div className="border border-line bg-surface-sunken px-3 py-2 text-left text-xs text-ink-subtle">
+                            Didn&apos;t receive it? Check your spam folder, then{' '}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMessage(null);
+                                    setError(null);
+                                }}
+                                className="font-semibold text-brand-600 hover:underline dark:text-brand-400"
+                            >
+                                try again
+                            </button>
+                            .
+                        </div>
+                    </div>
+                ) : (
+                    <form onSubmit={submit} className="space-y-4" noValidate>
+                        <Flash message={error} tone="red" />
+                        <Input
+                            label="Email address"
+                            type="email"
+                            autoComplete="email"
+                            autoFocus
+                            placeholder="you@company.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                        />
+                        <Button type="submit" className="w-full" loading={loading}>
+                            <Mail className="size-4" aria-hidden="true" />
+                            Send reset link
+                        </Button>
+                    </form>
+                )}
             </div>
-        </div>
+        </AuthLayout>
     );
 }

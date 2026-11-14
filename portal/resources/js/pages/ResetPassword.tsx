@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { CheckCircle2, KeyRound } from 'lucide-react';
 import { getCsrfCookie } from '../bootstrap';
 import { apiPost, errMsg } from '../lib/api';
-import { Button, Card, Flash, Input } from '../components/ui';
+import { AuthLayout } from '../layouts/AuthLayout';
+import { Button, Flash, Input } from '../components/ui';
 
 export default function ResetPassword() {
     const [params] = useSearchParams();
@@ -42,86 +44,84 @@ export default function ResetPassword() {
     };
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
-            <div className="w-full max-w-sm">
-                <div className="mb-6 text-center">
-                    <div className="text-2xl font-bold text-indigo-700">StockPilot</div>
-                    <p className="text-sm text-gray-500">Choose a new password</p>
-                </div>
-                <Card>
-                    {done ? (
-                        <div className="space-y-4">
-                            <Flash message="Your password has been reset." tone="green" />
-                            <p className="text-xs text-gray-500">
-                                For your security, every other signed-in session has been signed out. Sign in again
-                                with your new password.
-                            </p>
-                            <Link
-                                to="/login"
-                                className="block text-center text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                            >
-                                Sign in
-                            </Link>
+        <AuthLayout
+            title="Choose a new password"
+            subtitle="Every other signed-in session will be signed out for security."
+            backTo="/login"
+            backLabel="Back to sign in"
+            footer={
+                <>
+                    Link expired?{' '}
+                    <Link
+                        to="/forgot-password"
+                        className="font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-300"
+                    >
+                        Request a new one
+                    </Link>
+                </>
+            }
+        >
+            <div className="border-2 border-line bg-surface p-4 sm:p-5">
+                {done ? (
+                    <div className="space-y-3">
+                        <div className="flex size-10 items-center justify-center border border-line border-l-2 border-l-positive bg-surface-sunken text-positive">
+                            <CheckCircle2 className="size-5" aria-hidden="true" />
                         </div>
-                    ) : !token ? (
-                        <div className="space-y-4">
-                            <Flash message="This reset link is incomplete or invalid." tone="red" />
-                            <p className="text-xs text-gray-500">
-                                Password reset links expire after one hour. Request a fresh one and try again.
-                            </p>
-                            <Link
-                                to="/forgot-password"
-                                className="block text-center text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                            >
+                        <p className="text-sm leading-relaxed text-ink-muted">
+                            Your password has been reset. Sign in again with your new password.
+                        </p>
+                        <Link to="/login" className="block">
+                            <Button className="w-full">Go to sign in</Button>
+                        </Link>
+                    </div>
+                ) : !token ? (
+                    <div className="space-y-4">
+                        <Flash message="This reset link is incomplete or invalid." tone="red" />
+                        <p className="text-sm leading-relaxed text-ink-muted">
+                            Password reset links expire after one hour. Request a fresh one and try again.
+                        </p>
+                        <Link to="/forgot-password" className="block">
+                            <Button variant="secondary" className="w-full">
                                 Request a new link
-                            </Link>
-                        </div>
-                    ) : (
-                        <form onSubmit={submit} className="space-y-3">
-                            <Flash message={error} tone="red" />
-                            <Input
-                                label="Email"
-                                type="email"
-                                required
-                                autoComplete="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                            />
-                            <Input
-                                label="New password"
-                                type="password"
-                                required
-                                autoFocus
-                                autoComplete="new-password"
-                                placeholder="At least 8 characters"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                            <Input
-                                label="Confirm new password"
-                                type="password"
-                                required
-                                autoComplete="new-password"
-                                value={confirmation}
-                                onChange={(e) => setConfirmation(e.target.value)}
-                            />
-                            <Button type="submit" className="w-full" loading={loading}>
-                                Set new password
                             </Button>
-
-                            <div className="pt-2 text-center text-xs text-gray-500">
-                                Link expired?{' '}
-                                <Link
-                                    to="/forgot-password"
-                                    className="font-semibold text-indigo-600 hover:text-indigo-800"
-                                >
-                                    Request a new one
-                                </Link>
-                            </div>
-                        </form>
-                    )}
-                </Card>
+                        </Link>
+                    </div>
+                ) : (
+                    <form onSubmit={submit} className="space-y-4" noValidate>
+                        <Flash message={error} tone="red" />
+                        <Input
+                            label="Email address"
+                            type="email"
+                            autoComplete="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                        />
+                        <Input
+                            label="New password"
+                            type="password"
+                            autoComplete="new-password"
+                            autoFocus
+                            placeholder="At least 8 characters"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                        />
+                        <Input
+                            label="Confirm new password"
+                            type="password"
+                            autoComplete="new-password"
+                            value={confirmation}
+                            onChange={(e) => setConfirmation(e.target.value)}
+                            required
+                        />
+                        <Button type="submit" className="w-full" loading={loading}>
+                            <KeyRound className="size-4" aria-hidden="true" />
+                            Set new password
+                        </Button>
+                    </form>
+                )}
             </div>
-        </div>
+        </AuthLayout>
     );
 }
