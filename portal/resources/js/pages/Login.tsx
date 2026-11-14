@@ -4,7 +4,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { errMsg } from '../lib/api';
 import { AuthLayout } from '../layouts/AuthLayout';
-import { Button, Checkbox, Flash, Input } from '../components/ui';
+import { Button, Flash, Input } from '../components/ui';
 
 export default function Login() {
     const { login, user } = useAuth();
@@ -12,7 +12,6 @@ export default function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
-    const [remember, setRemember] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -84,15 +83,7 @@ export default function Login() {
                         </button>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
-                        <div className="sp-hit-row -ml-1">
-                            <Checkbox
-                                id="remember"
-                                label="Remember me"
-                                checked={remember}
-                                onChange={(e) => setRemember(e.target.checked)}
-                            />
-                        </div>
+                    <div className="flex items-center justify-end">
                         <Link
                             to="/forgot-password"
                             className="text-xs font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-300"
