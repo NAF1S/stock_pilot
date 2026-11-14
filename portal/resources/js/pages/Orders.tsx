@@ -1,10 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { ChevronRight, Search, ShoppingCart } from 'lucide-react';
 import { apiDelete, apiGet, apiPost, errMsg } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { dateTime, money, number } from '../lib/format';
-import { Badge, Button, EmptyState, Flash, Modal, PageHeader, Pagination, Select, Spinner, Table } from '../components/ui';
+import { componentTone, reservationTone, statusTone, syncMeta } from '../lib/status';
+import {
+    Badge,
+    Button,
+    Card,
+    Checkbox,
+    EmptyState,
+    Flash,
+    Input,
+    Modal,
+    PageHeader,
+    Pagination,
+    Select,
+    Spinner,
+} from '../components/ui';
+import { DataTable, type Column } from '../components/ui/DataTable';
 
 interface OrderSummary {
     id: number;
@@ -30,13 +46,8 @@ interface OrderDetail extends OrderSummary {
 
 type BulkAction = 'reprocess' | 'recompute_dry' | 'recompute_apply' | 'delete' | 'reserve' | 'confirm' | 'release' | 'confirm_no_deduct';
 
-const stateTone: Record<string, 'green' | 'blue' | 'purple' | 'gray' | 'amber'> = {
-    confirmed: 'green', reserved: 'blue', returned: 'purple', released: 'gray', partial: 'amber', none: 'gray',
-};
-
-const compTone: Record<string, 'green' | 'blue' | 'purple' | 'gray' | 'amber'> = {
-    confirmed: 'green', reserved: 'blue', returned: 'purple', released: 'gray', partial: 'amber', pending: 'gray',
-};
+const STATUSES = ['pending', 'on-hold', 'processing', 'completed', 'cancelled', 'refunded', 'failed'];
+const RESERVATIONS = ['none', 'reserved', 'confirmed', 'released', 'returned', 'partial'];
 
 export default function Orders() {
     const { user } = useAuth();
@@ -53,6 +64,7 @@ export default function Orders() {
     }, [searchParams]);
 
     const [page, setPage] = useState(1);
+    const [search, setSearch] = useState('');
     const [status, setStatus] = useState('');
     const [reservation, setReservation] = useState('');
     const [mismatch, setMismatch] = useState(false);
@@ -180,13 +192,19 @@ export default function Orders() {
         onError: (e) => setFlash(errMsg(e)),
     });
 
-    const pageIds = (data?.data ?? []).map((o) => o.id);
-    const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+    const pageRows = data?.data ?? [];
+    const term = search.trim().toLowerCase();
+    const rows = term
+        ? pageRows.filter((o) => `${o.number} ${o.customer_name ?? ''} ${o.store_name ?? ''}`.toLowerCase().includes(term))
+        : pageRows;
+
+    const visibleIds = rows.map((o) => o.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
 
     const toggleAll = () => {
         setSelected((prev) => {
             const next = new Set(prev);
-            pageIds.forEach((id) => (allSelected ? next.delete(id) : next.add(id)));
+            visibleIds.forEach((id) => (allSelected ? next.delete(id) : next.add(id)));
             return next;
         });
     };
@@ -204,234 +222,253 @@ export default function Orders() {
         bulk.mutate('delete');
     };
 
+    const clearFilters = () => {
+        setSearch('');
+        setStatus('');
+        setReservation('');
+        setMismatch(false);
+        setUnmapped(false);
+        setPage(1);
+    };
+
+    const columns: Column<OrderSummary>[] = [
+        {
+            head: 'Select',
+            hide: 'lg',
+            cell: (o) => (
+                <label className="sp-hit-row items-center">
+                    <span className="visually-hidden">Select order {o.number}</span>
+                    <input
+                        type="checkbox"
+                        checked={selected.has(o.id)}
+                        onChange={() => toggleSel(o.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="size-4 accent-brand-600"
+                    />
+                </label>
+            ),
+        },
+        {
+            head: 'Order number',
+            key: true,
+            cell: (o) => (
+                <span className="flex min-w-0 flex-col">
+                    <span className="sp-code font-semibold text-ink">#{o.number}</span>
+                    {o.store_name && <span className="mt-0.5 truncate text-xs text-ink-subtle">{o.store_name}</span>}
+                </span>
+            ),
+        },
+        { head: 'Customer', cell: (o) => o.customer_name ?? '—' },
+        { head: 'Status', cell: (o) => <Badge tone={statusTone(o.status)}>{o.status}</Badge> },
+        {
+            head: 'Reservation',
+            cell: (o) => <Badge tone={reservationTone(o.reservation_state)}>{o.reservation_state}</Badge>,
+        },
+        {
+            head: 'Sync',
+            hide: 'lg',
+            cell: (o) => <Badge tone={syncMeta(o.sync_status).tone}>{syncMeta(o.sync_status).label}</Badge>,
+        },
+        {
+            head: 'Total',
+            align: 'end',
+            code: true,
+            cell: (o) => (
+                <span className="flex flex-col items-end">
+                    <span>{money(o.total, currency)}</span>
+                    {o.refund_total > 0 && <span className="text-xs text-danger">-{money(o.refund_total, currency)}</span>}
+                </span>
+            ),
+        },
+        {
+            head: 'Placed',
+            align: 'end',
+            hide: 'md',
+            cell: (o) => <span className="sp-code text-xs">{dateTime(o.order_created_at)}</span>,
+        },
+        {
+            head: '',
+            align: 'end',
+            actions: true,
+            hide: 'sm',
+            cell: () => <ChevronRight className="ml-auto size-4 text-ink-subtle" aria-hidden="true" />,
+        },
+    ];
+
     return (
-        <div>
-            <PageHeader title="Orders" subtitle="Synced WooCommerce orders and how they consumed inventory" />
+        <>
+            <PageHeader
+                title="Orders"
+                subtitle="Synced WooCommerce orders and how they consumed inventory."
+                actions={
+                    <Button variant="secondary" onClick={clearFilters}>
+                        Clear filters
+                    </Button>
+                }
+            />
 
             <Flash message={flash} />
 
-            <div className="mb-4 flex flex-wrap items-end gap-2.5 sm:gap-3">
-                <Select label="Status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="w-full sm:w-auto sm:max-w-[170px]">
-                    <option value="">All statuses</option>
-                    {['pending', 'on-hold', 'processing', 'completed', 'cancelled', 'refunded', 'failed'].map((s) => <option key={s} value={s}>{s}</option>)}
-                </Select>
-                <Select label="Reservation" value={reservation} onChange={(e) => { setReservation(e.target.value); setPage(1); }} className="w-full sm:w-auto sm:max-w-[170px]">
-                    <option value="">All reservations</option>
-                    {['none', 'reserved', 'confirmed', 'released', 'returned', 'partial'].map((s) => <option key={s} value={s}>{s}</option>)}
-                </Select>
-                <label className="flex items-center gap-2 py-1 text-xs text-gray-600 sm:text-sm">
-                    <input type="checkbox" checked={mismatch} onChange={(e) => { setMismatch(e.target.checked); setPage(1); }} />
-                    Mismatches only
-                </label>
-                <label className="flex items-center gap-2 py-1 text-xs text-gray-600 sm:text-sm">
-                    <input type="checkbox" checked={unmapped} onChange={(e) => { setUnmapped(e.target.checked); setPage(1); }} />
-                    Unmapped only
-                </label>
-            </div>
-
-            {selected.size > 0 && (
-                <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 p-2 sm:gap-2">
-                    <span className="text-xs font-semibold text-gray-600 mr-1">{selected.size} selected:</span>
-                    <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'reserve'} disabled={bulk.isPending} onClick={() => { if (confirm(`Reserve stock for ${selected.size} selected order(s)?`)) bulk.mutate('reserve'); }}>
-                        Reserve
-                    </Button>
-                    <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'confirm'} disabled={bulk.isPending} onClick={() => { if (confirm(`Confirm stock deduction for ${selected.size} selected order(s)?`)) bulk.mutate('confirm'); }}>
-                        Confirm
-                    </Button>
-                    <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'release'} disabled={bulk.isPending} onClick={() => { if (confirm(`Release stock for ${selected.size} selected order(s)?`)) bulk.mutate('release'); }}>
-                        Release
-                    </Button>
-                    <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'confirm_no_deduct'} disabled={bulk.isPending} onClick={() => { if (confirm(`Force confirm ${selected.size} selected order(s) without stock deduction? Mismatches will be cleared and all items marked confirmed.`)) bulk.mutate('confirm_no_deduct'); }}>
-                        Force Confirm (No Stock Deduction)
-                    </Button>
-                    <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'reprocess'} disabled={bulk.isPending} onClick={() => bulk.mutate('reprocess')}>
-                        Reprocess
-                    </Button>
-                    <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'recompute_dry'} disabled={bulk.isPending} onClick={() => bulk.mutate('recompute_dry')}>
-                        Dry-run
-                    </Button>
-                    <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'recompute_apply'} disabled={bulk.isPending} onClick={() => { if (confirm(`Apply reconciliation to ${selected.size} order(s)?`)) bulk.mutate('recompute_apply'); }}>
-                        Reconcile
-                    </Button>
-                    {user?.role === 'admin' && (
-                        <Button size="sm" variant="danger" loading={bulk.isPending && bulk.variables === 'delete'} disabled={bulk.isPending} onClick={confirmBulkDelete}>
-                            Delete
-                        </Button>
-                    )}
-                </div>
-            )}
-
-            {/* Mobile Card View (< sm) */}
-            <div className="space-y-2.5 sm:hidden">
-                {isLoading && <div className="py-8 text-center text-gray-500"><Spinner /></div>}
-                {!isLoading && !data?.data?.length && (
-                    <EmptyState title="No orders synced yet" hint="Connect your store and place an order — it will appear here" />
-                )}
-                {data?.data?.map((o) => (
-                    <div key={o.id} className="rounded-lg border border-gray-200 bg-white p-3.5 shadow-xs">
-                        <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                                <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggleSel(o.id)} className="rounded" />
-                                <div>
-                                    <span className="font-bold text-gray-900">#{o.number}</span>
-                                    <span className="ml-1 text-xs text-gray-400">· {dateTime(o.order_created_at)}</span>
-                                </div>
-                            </div>
-                            <div className="text-right font-semibold text-gray-900">
-                                {money(o.total, currency)}
-                                {o.refund_total > 0 && <span className="block text-xs font-normal text-red-500">-{money(o.refund_total, currency)}</span>}
-                            </div>
-                        </div>
-                        <div className="mt-1 text-xs text-gray-600">
-                            {o.customer_name ?? '—'} {o.store_name ? `· ${o.store_name}` : ''}
-                        </div>
-                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                            <Badge tone="gray">{o.status}</Badge>
-                            <Badge tone={stateTone[o.reservation_state] ?? 'gray'}>{o.reservation_state}</Badge>
-                            {o.sync_status === 'mismatch' ? <Badge tone="amber">mismatch</Badge>
-                                : o.sync_status === 'unmapped' ? <Badge tone="amber">unmapped</Badge>
-                                    : o.sync_status === 'error' ? <Badge tone="red">error</Badge>
-                                        : <Badge tone="green">ok</Badge>}
-                            <Button size="sm" variant="secondary" className="ml-auto" onClick={() => loadDetail(o.id)}>
-                                Manage & View →
-                            </Button>
-                        </div>
+            <Card bodyClassName="p-0">
+                <div className="flex flex-wrap items-end gap-2 border-b border-line px-3 py-2.5">
+                    <div className="relative flex min-w-0 flex-1 items-center sm:max-w-xs">
+                        <Search className="absolute left-2 size-4 text-ink-subtle" aria-hidden="true" />
+                        <Input
+                            aria-label="Search orders"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Order number or customer…"
+                            className="pl-8"
+                        />
                     </div>
-                ))}
-            </div>
 
-            {/* Desktop Table View (>= sm) */}
-            <div className="hidden sm:block">
-                <Table
-                    head={[
-                        <input key="sel" type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all on page" />,
-                        'Order', 'Customer', 'Status', 'Reservation', 'Total', 'Synced', '',
-                    ]}
-                    empty={!isLoading && !data?.data?.length ? <EmptyState title="No orders synced yet" hint="Connect your store and place an order — it will appear here" /> : undefined}
-                >
-                    {data?.data?.map((o) => (
-                        <tr key={o.id} className="hover:bg-gray-50">
-                            <td className="px-2 py-2"><input type="checkbox" checked={selected.has(o.id)} onChange={() => toggleSel(o.id)} /></td>
-                            <td className="px-4 py-2">
-                                <div className="font-medium text-gray-800">#{o.number}</div>
-                                <div className="text-xs text-gray-400">{o.store_name ?? '—'} · {dateTime(o.order_created_at)}</div>
-                            </td>
-                            <td className="px-4 py-2">{o.customer_name ?? '—'}</td>
-                            <td className="px-4 py-2"><Badge tone="gray">{o.status}</Badge></td>
-                            <td className="px-4 py-2"><Badge tone={stateTone[o.reservation_state] ?? 'gray'}>{o.reservation_state}</Badge></td>
-                            <td className="px-4 py-2">
-                                {money(o.total, currency)}
-                                {o.refund_total > 0 && <span className="ml-1 text-xs text-red-500">-{money(o.refund_total, currency)}</span>}
-                            </td>
-                            <td className="px-4 py-2">
-                                {o.sync_status === 'mismatch' ? <Badge tone="amber">mismatch</Badge>
-                                    : o.sync_status === 'unmapped' ? <Badge tone="amber">unmapped</Badge>
-                                        : o.sync_status === 'error' ? <Badge tone="red">error</Badge>
-                                            : <Badge tone="green">ok</Badge>}
-                            </td>
-                            <td className="px-4 py-2 text-right"><Button size="sm" variant="ghost" onClick={() => loadDetail(o.id)}>View</Button></td>
-                        </tr>
-                    ))}
-                </Table>
-            </div>
+                    <Select
+                        value={status}
+                        onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+                        aria-label="Filter by status"
+                        className="w-full sm:w-auto"
+                    >
+                        <option value="">Any status</option>
+                        {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </Select>
 
-            <Pagination meta={data as never} onPage={setPage} />
+                    <Select
+                        value={reservation}
+                        onChange={(e) => { setReservation(e.target.value); setPage(1); }}
+                        aria-label="Filter by reservation"
+                        className="w-full sm:w-auto"
+                    >
+                        <option value="">Any reservation</option>
+                        {RESERVATIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </Select>
 
-            <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `Order #${detail.number}` : ''} wide>
-                {detail ? (
-                    <div className="space-y-4">
-                        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-                            <Badge tone="gray">status: {detail.status}</Badge>
-                            <Badge tone={stateTone[detail.reservation_state] ?? 'gray'}>reservation: {detail.reservation_state}</Badge>
-                            {detail.sync_status === 'mismatch' && <Badge tone="amber">mismatch</Badge>}
-                            {detail.sync_status === 'unmapped' && <Badge tone="amber">unmapped</Badge>}
-                            {detail.sync_status === 'error' && <Badge tone="red">error</Badge>}
-                            <span className="text-gray-500">{detail.customer_name ?? '—'}</span>
-                            <span className="ml-auto font-semibold">{money(detail.total, currency)}</span>
-                        </div>
+                    <Checkbox
+                        id="orders-mismatch"
+                        label="Mismatches only"
+                        checked={mismatch}
+                        onChange={(e) => { setMismatch(e.target.checked); setPage(1); }}
+                    />
 
-                        <div>
-                            <h4 className="mb-1 text-xs font-semibold uppercase text-gray-500">Ordered items</h4>
-                            <Table head={['Product', 'Qty', 'Price', 'Line total']}>
-                                {detail.items.map((i) => (
-                                    <tr key={i.id}>
-                                        <td className="px-3 py-1.5">
-                                            <span className="font-medium">{i.product_name}</span>
-                                            {i.sku && <span className="ml-1 text-xs text-gray-400">({i.sku})</span>}
-                                        </td>
-                                        <td className="px-3 py-1.5">{number(i.quantity)}</td>
-                                        <td className="px-3 py-1.5">{money(i.price, currency)}</td>
-                                        <td className="px-3 py-1.5">{money(i.line_total, currency)}</td>
-                                    </tr>
-                                ))}
-                            </Table>
-                        </div>
+                    <Checkbox
+                        id="orders-unmapped"
+                        label="Unmapped only"
+                        checked={unmapped}
+                        onChange={(e) => { setUnmapped(e.target.checked); setPage(1); }}
+                    />
 
-                        <div>
-                            <h4 className="mb-1 text-xs font-semibold uppercase text-gray-500">Components consumed (BOM)</h4>
-                            {detail.components.length === 0 ? (
-                                <p className="text-sm text-gray-500">No components — no product line mapped to a recipe. Check the product name and fix the order's recipe, then press "Reprocess order".</p>
+                    <span className="ml-auto text-xs text-ink-subtle">{number(data?.total ?? 0)} orders</span>
+                </div>
+
+                {selected.size > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface-sunken px-3 py-2">
+                        <span className="mr-1 text-xs font-semibold text-ink">{selected.size} selected</span>
+                        <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'reserve'} disabled={bulk.isPending} onClick={() => { if (confirm(`Reserve stock for ${selected.size} selected order(s)?`)) bulk.mutate('reserve'); }}>
+                            Reserve
+                        </Button>
+                        <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'confirm'} disabled={bulk.isPending} onClick={() => { if (confirm(`Confirm stock deduction for ${selected.size} selected order(s)?`)) bulk.mutate('confirm'); }}>
+                            Confirm
+                        </Button>
+                        <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'release'} disabled={bulk.isPending} onClick={() => { if (confirm(`Release stock for ${selected.size} selected order(s)?`)) bulk.mutate('release'); }}>
+                            Release
+                        </Button>
+                        <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'confirm_no_deduct'} disabled={bulk.isPending} onClick={() => { if (confirm(`Force confirm ${selected.size} selected order(s) without stock deduction? Mismatches will be cleared and all items marked confirmed.`)) bulk.mutate('confirm_no_deduct'); }}>
+                            Force confirm (no stock deduction)
+                        </Button>
+                        <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'reprocess'} disabled={bulk.isPending} onClick={() => bulk.mutate('reprocess')}>
+                            Reprocess
+                        </Button>
+                        <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'recompute_dry'} disabled={bulk.isPending} onClick={() => bulk.mutate('recompute_dry')}>
+                            Dry-run
+                        </Button>
+                        <Button size="sm" variant="secondary" loading={bulk.isPending && bulk.variables === 'recompute_apply'} disabled={bulk.isPending} onClick={() => { if (confirm(`Apply reconciliation to ${selected.size} order(s)?`)) bulk.mutate('recompute_apply'); }}>
+                            Reconcile
+                        </Button>
+                        {user?.role === 'admin' && (
+                            <Button size="sm" variant="danger" loading={bulk.isPending && bulk.variables === 'delete'} disabled={bulk.isPending} onClick={confirmBulkDelete}>
+                                Delete
+                            </Button>
+                        )}
+                        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setSelected(new Set())}>
+                            Clear selection
+                        </Button>
+                    </div>
+                )}
+
+                <div className="px-3 py-1">
+                    <div className="flex items-center gap-3 border-b border-line px-2 py-1.5">
+                        <label className="sp-hit-row gap-1.5 text-xs text-ink-subtle">
+                            <input
+                                type="checkbox"
+                                checked={allSelected}
+                                onChange={toggleAll}
+                                aria-label="Select all on page"
+                                className="size-4 accent-brand-600"
+                            />
+                            All
+                        </label>
+                    </div>
+
+                    <DataTable
+                        columns={columns}
+                        rows={rows}
+                        rowKey={(o) => o.id}
+                        activeKey={detail ? detail.id : null}
+                        onRowClick={(o) => loadDetail(o.id)}
+                        empty={
+                            isLoading ? (
+                                <div className="py-12 text-center">
+                                    <Spinner className="mx-auto text-ink-subtle" />
+                                </div>
                             ) : (
-                                <Table head={['Component', 'Per unit', 'Order qty', 'Total', 'Reserved', 'Confirmed', 'Returned', 'Status']}>
-                                    {detail.components.map((c) => (
-                                        <tr key={c.id}>
-                                            <td className="px-3 py-1.5 font-medium">
-                                                {c.component_product ? (
-                                                    <><Badge tone="blue">product</Badge> {c.component_product.name}</>
-                                                ) : (
-                                                    <>{c.item?.name ?? `Item #${c.item_id}`}</>
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-1.5">{number(c.quantity_per_unit)}</td>
-                                            <td className="px-3 py-1.5">{number(c.order_quantity)}</td>
-                                            <td className="px-3 py-1.5 font-medium">{number(c.total_quantity)}</td>
-                                            <td className="px-3 py-1.5">{number(c.reserved_quantity)}</td>
-                                            <td className="px-3 py-1.5">{number(c.confirmed_quantity)}</td>
-                                            <td className="px-3 py-1.5">{number(c.returned_quantity)}</td>
-                                            <td className="px-3 py-1.5"><Badge tone={compTone[c.status] ?? 'gray'}>{c.status}</Badge></td>
-                                        </tr>
-                                    ))}
-                                </Table>
-                            )}
-                        </div>
+                                <EmptyState
+                                    title="No orders synced yet"
+                                    hint="Connect your store and place an order — it will appear here."
+                                    icon={<ShoppingCart className="size-5" aria-hidden="true" />}
+                                />
+                            )
+                        }
+                    />
+                </div>
 
-                        <div>
-                            <h4 className="mb-1 text-xs font-semibold uppercase text-gray-500">Status history</h4>
-                            <div className="flex flex-wrap gap-2 text-xs text-gray-600">
-                                {detail.status_events.map((e) => (
-                                    <span key={e.id} className="rounded bg-gray-100 px-2 py-1">
-                                        {e.status_from ?? '—'} → <b>{e.status_to}</b> · {dateTime(e.occurred_at)}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
+                <div className="px-3">
+                    <Pagination meta={data} onPage={setPage} />
+                </div>
+            </Card>
 
-                        {/* Order Management Actions Footer */}
-                        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center sm:justify-end gap-2 border-t pt-4">
-                            {/* Manual Admin Control Buttons */}
+            <Modal
+                open={!!detail}
+                onClose={() => setDetail(null)}
+                wide
+                title={detail ? `Order #${detail.number}` : ''}
+                description={detail ? `${detail.customer_name ?? '—'} · ${dateTime(detail.order_created_at)}` : ''}
+                footer={
+                    detail && (
+                        <>
+                            <Button variant="secondary" size="sm" onClick={() => setDetail(null)}>
+                                Close
+                            </Button>
                             {['none', 'released', 'partial'].includes(detail.reservation_state) && (
                                 <Button
-                                    variant="primary"
+                                    size="sm"
                                     loading={reserveOrder.isPending}
                                     onClick={() => { if (confirm(`Reserve stock for Order #${detail.number}?`)) reserveOrder.mutate(); }}
                                 >
-                                    Reserve Stock
+                                    Reserve stock
                                 </Button>
                             )}
                             {detail.reservation_state !== 'confirmed' && (
                                 <Button
-                                    variant="primary"
-                                    className="bg-emerald-600 hover:bg-emerald-700"
+                                    size="sm"
                                     loading={confirmOrder.isPending}
                                     onClick={() => { if (confirm(`Confirm stock deduction for Order #${detail.number}?`)) confirmOrder.mutate(); }}
                                 >
-                                    Confirm Stock
+                                    Confirm stock
                                 </Button>
                             )}
                             {['reserved', 'partial', 'confirmed'].includes(detail.reservation_state) && (
                                 <Button
+                                    size="sm"
                                     variant="secondary"
-                                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
                                     loading={releaseOrder.isPending}
                                     onClick={() => {
                                         const msg = detail.reservation_state === 'confirmed'
@@ -440,11 +477,100 @@ export default function Orders() {
                                         if (confirm(msg)) releaseOrder.mutate();
                                     }}
                                 >
-                                    Release Stock
+                                    Release stock
                                 </Button>
                             )}
+                        </>
+                    )
+                }
+            >
+                {detail && (
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Badge tone={statusTone(detail.status)}>{detail.status}</Badge>
+                            <Badge tone={reservationTone(detail.reservation_state)}>{detail.reservation_state}</Badge>
+                            <Badge tone={syncMeta(detail.sync_status).tone}>{syncMeta(detail.sync_status).label}</Badge>
+                            <span className="ml-auto sp-code text-ink">{money(detail.total, currency)}</span>
+                        </div>
+
+                        <div>
+                            <h3 className="mb-2 text-sm font-semibold text-ink">Ordered items</h3>
+                            {detail.items.length === 0 ? (
+                                <p className="text-xs text-ink-subtle">No line items on this order.</p>
+                            ) : (
+                                <ul className="border-t-2 border-line-strong">
+                                    {detail.items.map((i) => (
+                                        <li key={i.id} className="flex items-baseline justify-between gap-3 border-b border-line py-2 text-sm">
+                                            <span className="min-w-0">
+                                                <span className="block truncate text-ink">{i.product_name}</span>
+                                                {i.sku && <span className="sp-code">{i.sku}</span>}
+                                            </span>
+                                            <span className="flex shrink-0 items-baseline gap-3">
+                                                <span className="sp-code text-xs text-ink-muted">×{number(i.quantity)}</span>
+                                                <span className="sp-code text-ink">{money(i.line_total, currency)}</span>
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
+                        <div>
+                            <h3 className="mb-2 text-sm font-semibold text-ink">What it deducted</h3>
+                            {detail.components.length === 0 ? (
+                                <p className="text-xs text-ink-subtle">
+                                    No components — no product line mapped to a recipe. Fix the order&apos;s recipe, then reprocess it.
+                                </p>
+                            ) : (
+                                <ul className="border-t-2 border-line-strong">
+                                    {detail.components.map((c) => (
+                                        <li key={c.id} className="flex items-baseline justify-between gap-3 border-b border-line py-2 text-sm">
+                                            <span className="flex min-w-0 items-center gap-2">
+                                                <span className="min-w-0 truncate text-ink">
+                                                    {c.component_product ? c.component_product.name : (c.item?.name ?? `Item #${c.item_id}`)}
+                                                </span>
+                                                <Badge tone={componentTone(c.status)}>{c.status}</Badge>
+                                            </span>
+                                            <span className="flex shrink-0 flex-col items-end">
+                                                <span className="sp-code text-ink">{number(c.total_quantity)}</span>
+                                                <span className="sp-code text-xs">
+                                                    {number(c.quantity_per_unit)}/unit · {number(c.order_quantity)} ordered
+                                                </span>
+                                                <span className="sp-code text-xs">
+                                                    {number(c.reserved_quantity)} res · {number(c.confirmed_quantity)} conf · {number(c.returned_quantity)} ret
+                                                </span>
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
+                        <div>
+                            <h3 className="mb-2 text-sm font-semibold text-ink">Status history</h3>
+                            {detail.status_events.length === 0 ? (
+                                <p className="text-xs text-ink-subtle">No status changes recorded.</p>
+                            ) : (
+                                <ol className="space-y-2 border-l-2 border-line pl-3">
+                                    {detail.status_events.map((e) => (
+                                        <li key={e.id} className="text-xs">
+                                            <span className="sp-code text-ink-muted">{dateTime(e.occurred_at)}</span>
+                                            <span className="ml-2 text-ink">
+                                                <span className="sp-code">{e.status_from ?? '—'}</span>
+                                                {' → '}
+                                                <span className="sp-code text-ink">{e.status_to}</span>
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ol>
+                            )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                            <span className="mr-1 text-xs font-semibold text-ink-muted">Maintenance</span>
                             <Button
                                 variant="secondary"
+                                size="sm"
                                 loading={confirmNoDeductOrder.isPending}
                                 onClick={() => {
                                     if (confirm(`Confirm all items for Order #${detail.number} without deducting current stock? This clears any mismatch status and marks items confirmed.`)) {
@@ -452,30 +578,26 @@ export default function Orders() {
                                     }
                                 }}
                             >
-                                Force Confirm (No Stock Deduction)
+                                Force confirm (no stock deduction)
                             </Button>
-
-                            {/* Standard maintenance & reprocess actions */}
-                            <Button variant="secondary" loading={reprocess.isPending} onClick={() => { if (confirm('Re-run this order through the inventory engine? Idempotent — safe for already-processed orders.')) reprocess.mutate(); }}>
+                            <Button variant="secondary" size="sm" loading={reprocess.isPending} onClick={() => { if (confirm('Re-run this order through the inventory engine? Idempotent — safe for already-processed orders.')) reprocess.mutate(); }}>
                                 Reprocess
                             </Button>
-                            <Button variant="secondary" loading={recompute.isPending} onClick={() => recompute.mutate(false)}>
+                            <Button variant="secondary" size="sm" loading={recompute.isPending} onClick={() => recompute.mutate(false)}>
                                 Dry-run
                             </Button>
-                            <Button variant="secondary" loading={recompute.isPending} onClick={() => { if (confirm('Apply cache reconciliation? This fixes item caches against the ledger.')) recompute.mutate(true); }}>
+                            <Button variant="secondary" size="sm" loading={recompute.isPending} onClick={() => { if (confirm('Apply cache reconciliation? This fixes item caches against the ledger.')) recompute.mutate(true); }}>
                                 Reconcile
                             </Button>
                             {user?.role === 'admin' && (
-                                <Button variant="danger" loading={del.isPending} onClick={() => { if (confirm('Delete this order? Reservations will be released and confirmed stock restocked first.')) del.mutate(); }}>
+                                <Button variant="danger" size="sm" loading={del.isPending} onClick={() => { if (confirm('Delete this order? Reservations will be released and confirmed stock restocked first.')) del.mutate(); }}>
                                     Delete
                                 </Button>
                             )}
                         </div>
                     </div>
-                ) : (
-                    <Spinner />
                 )}
             </Modal>
-        </div>
+        </>
     );
 }
