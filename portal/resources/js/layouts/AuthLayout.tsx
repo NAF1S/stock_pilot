@@ -132,7 +132,7 @@ export function AuthLayout({
                 </main>
 
                 <footer className="px-4 pb-5 text-center text-xs text-ink-subtle sm:px-6">
-                    StockPilot · Inventory and warehouse management
+                    StockPilot — inventory and warehouse management
                 </footer>
             </div>
         </div>

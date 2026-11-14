@@ -168,7 +168,7 @@ export default function Register() {
                     </div>
 
                     <ul className="space-y-1.5 text-xs text-ink-muted">
-                        {['Unlimited items and products', 'Multi-level recipes', 'Connect WooCommerce in minutes'].map(
+                        {['Items, products and multi-level recipes', 'An append-only stock ledger', 'Connect WooCommerce in minutes'].map(
                             (f) => (
                                 <li key={f} className="flex items-center gap-2">
                                     <Check className="size-3.5 shrink-0 text-positive" aria-hidden="true" />
