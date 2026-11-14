@@ -14,6 +14,11 @@ export function number(value: number | string | null | undefined, digits = 4): s
     }).format(n);
 }
 
+export function compact(value: number | string | null | undefined): string {
+    const n = Number(value ?? 0);
+    return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+}
+
 export function date(value: string | null | undefined): string {
     if (!value) return '—';
     const d = new Date(value);
