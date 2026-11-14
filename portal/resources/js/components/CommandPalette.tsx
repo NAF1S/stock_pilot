@@ -113,7 +113,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
     return (
         <div
-            className="fixed inset-0 z-[60] flex items-start justify-center bg-ink/50 p-4 pt-[12vh]"
+            className="fixed inset-0 z-60 flex items-start justify-center bg-ink/50 p-4 pt-24"
             onClick={onClose}
             role="presentation"
         >
@@ -147,7 +147,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                     id="command-palette-results"
                     role="listbox"
                     aria-label="Pages"
-                    className="max-h-[50vh] overflow-y-auto p-1"
+                    className="max-h-96 overflow-y-auto p-1"
                 >
                     {results.length === 0 ? (
                         <p className="px-3 py-6 text-center text-sm text-ink-subtle">No matching pages.</p>
