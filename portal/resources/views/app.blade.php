@@ -6,7 +6,6 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#2f4bd0">
     <title>{{ config('app.name', 'StockPilot') }}</title>
-    <link rel="preconnect" href="https://fonts.bunny.net">
     <script>
         // Apply the stored theme before first paint to avoid a flash.
         (function () {
@@ -18,6 +17,7 @@
         })();
     </script>
     @vite(['resources/css/app.css', 'resources/js/app.tsx'])
+    {!! \App\Support\ViteFonts::tags() !!}
 </head>
 <body class="h-full bg-surface-sunken antialiased">
     <div id="app"></div>
