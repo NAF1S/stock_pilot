@@ -26,18 +26,28 @@ uses relative imports; match the surrounding file.
 - [lib/auth.tsx](lib/auth.tsx) — `AuthProvider` + `useAuth()` (`user`, `loading`, `login`, `register`,
   `logout`, `refresh`) and `can()`. `AuthUser.role` is `'admin' | 'manager' | 'staff'`; format money with
   `user.organization.currency`.
-- Routing: `app.tsx` defines `<Routes>`; `SetupGate` renders the wizard while `/setup/status` reports the
-  app is not installed, and `<Protected />` redirects unauthenticated users to `/login`.
+- Routing: `app.tsx` defines `<Routes>`. The marketing page owns `/`, the product owns `/app/*` behind
+  `<Protected />`, and every legacy app path redirects to its `/app` equivalent. `SetupGate` renders the
+  wizard while `/setup/status` reports the app is not installed.
 
 ## UI conventions
 
-- Reuse the primitives in [components/ui.tsx](components/ui.tsx): `Badge`, `Button`, `Input`, `Select`,
-  `Card`, `StatCard`, `Spinner`, `FullPageSpinner`, `Modal`, `PageHeader`, `Table`, `Pagination`,
-  `EmptyState`, `Flash`. Add a variant to `ui.tsx` rather than restyling a button ad hoc.
-- Style with inline Tailwind utility classes; join conditional classes with `cn()` from [lib/cn.ts](lib/cn.ts).
-  Indigo is the primary colour and `bg-gray-50` the page background.
+- Primitives live in [components/ui/](components/ui/): `index.tsx` holds the controls, `DataTable.tsx` the
+  responsive table, `States.tsx` the loading/error/empty frames. The exported surface is `Badge`, `Button`,
+  `Input`, `Textarea`, `Select`, `Checkbox`, `Switch`, `Card`, `StatCard`, `Spinner`, `FullPageSpinner`,
+  `Skeleton`, `Modal`, `PageHeader`, `Table`, `Td`, `Pagination`, `EmptyState`, `Flash`, `Tabs`, `Tooltip`,
+  `Progress`, `Avatar`. Add a variant there rather than restyling a control ad hoc.
+- Style with the design-token utilities only: `bg-surface`, `bg-surface-raised`, `bg-surface-sunken`,
+  `border-line`, `border-line-strong`, `text-ink`, `text-ink-muted`, `text-ink-subtle`, `text-figure`,
+  `bg-plate`, `bg-brand-600`, and the `brand-50..950` / `accent-50..950` scales. A literal hex, an arbitrary
+  radius or a shadow in a component is a bug: every colour resolves through `resources/css/tokens.css`.
+  Radii are zero by design — depth is expressed as borders.
+- Figures, SKUs, balances and timestamps use `font-mono` with the `sp-figure` / `sp-code` shell classes;
+  text uses `font-sans`. Both faces are loaded through the Bun:vy font helper in `vite.config.js`.
+- Business-state colour comes from [lib/status.ts](lib/status.ts) only — `statusTone`, `reservationTone`,
+  `movementMeta`, `syncMeta`, `riskTone`, `urgencyTone`, `roleTone`. Do not write a local status→colour map.
 - Format values through [lib/format.ts](lib/format.ts): `money(value, currency)`, `number(value, digits)`,
-  `date()`, `dateTime()`.
+  `compact(value)`, `date()`, `dateTime()`.
 
 ## Page pattern (copy an existing page such as `pages/Items.tsx`)
 
@@ -45,10 +55,10 @@ uses relative imports; match the surrounding file.
 2. Fetch with `useQuery({ queryKey: ['items', page, search], queryFn: () => apiGet<T>('/items', {...}) })`.
 3. Mutate with `useMutation`, then `queryClient.invalidateQueries({ queryKey: ['items'] })`; surface errors
    with `errMsg(e)`.
-4. Use local `flash` / `error` state with `<Flash>` (via `components/ui.tsx`), `<Modal>` for create/edit
-   forms and `<Pagination meta={...}>` for paged lists.
-5. [components/Layout.tsx](components/Layout.tsx) owns the `nav` array (note the `adminOnly` flag) — a new
-   page must be registered there **and** as a `<Route>` in `app.tsx` under the `<Protected />` element.
+4. Use local `flash` / `error` state with `<Flash>`, `<Modal>` for create/edit forms and
+   `<Pagination meta={...}>` for paged lists. Paged tables use `DataTable` from `components/ui/DataTable`.
+5. [layouts/AppLayout.tsx](layouts/AppLayout.tsx) owns the `nav` array (note the `adminOnly` flag) — a new
+   page must be registered there **and** as a `<Route>` in `app.tsx` under the `/app` route.
 
 ## Adding a feature end-to-end
 

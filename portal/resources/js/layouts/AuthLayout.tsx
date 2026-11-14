@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Check } from 'lucide-react';
 import { Badge } from '../components/ui';
 import { Logo } from '../components/Logo';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { cn } from '../lib/cn';
 
 /**
@@ -111,6 +112,7 @@ export function AuthLayout({
                             {backLabel}
                         </Link>
                     )}
+                    <ThemeToggle />
                 </header>
 
                 <main className="flex flex-1 items-center justify-center px-4 pb-8 sm:px-6">
