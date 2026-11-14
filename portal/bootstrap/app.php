@@ -35,6 +35,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\EnsureRole::class,
             'store.key' => \App\Http\Middleware\AuthenticateStoreKey::class,
         ]);
+
+        // There is no server-rendered login page — the SPA owns /login. The
+        // framework's default guest redirect points at route('login'), which
+        // does not exist here, so Authenticate blew up with a 500 for any
+        // unauthenticated request that did not send `Accept: application/json`
+        // (the SPA always does, so this only ever bit direct/API clients).
+        // Returning null yields a clean 401 instead.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
