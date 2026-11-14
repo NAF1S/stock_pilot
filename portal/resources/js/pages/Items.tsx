@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Fragment, useMemo, useState } from 'react';
+import { Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { ReservationsPanel } from '../components/ReservationsPanel';
 import { apiDelete, apiGet, apiPost, apiPut, errMsg } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { cn } from '../lib/cn';
 import { money, number } from '../lib/format';
 import {
-    Badge, Button, Card, EmptyState, Flash, Input, Modal, PageHeader, Pagination, Select, Table,
+    Button, Card, EmptyState, Flash, Input, Modal, PageHeader, Pagination, Select, Switch,
 } from '../components/ui';
+import { DataTable, type Column } from '../components/ui/DataTable';
+import { TableSkeleton } from '../components/ui/States';
 
 interface Item {
     id: number;
@@ -30,6 +34,34 @@ interface Category { id: number; name: string }
 const emptyForm = {
     name: '', sku: '', category_id: '', unit: 'pcs', cost_price: '0', quantity_on_hand: '0', low_stock_threshold: '0',
 };
+
+function coverPct(onHand: number, threshold: number): number {
+    if (threshold <= 0) return 100;
+    return Math.max(0, Math.min(100, (onHand / threshold) * 100));
+}
+
+function OnHand({ item }: { item: Item }) {
+    const out = item.quantity_on_hand <= 0;
+    const pct = coverPct(item.quantity_on_hand, item.low_stock_threshold);
+
+    return (
+        <span className="inline-flex items-center gap-2">
+            <span className="block h-1 w-16 shrink-0 bg-line" aria-hidden="true">
+                <span
+                    className={cn(
+                        'block h-full',
+                        out ? 'bg-danger' : item.is_low_stock ? 'bg-figure' : 'bg-positive',
+                    )}
+                    style={{ width: `${Math.max(pct, 4)}%` }}
+                />
+            </span>
+            <span className={cn('font-mono text-xs', out ? 'text-danger' : 'text-ink')}>
+                {number(item.quantity_on_hand)}
+            </span>
+            <span className="font-mono text-xs text-ink-subtle">{item.unit}</span>
+        </span>
+    );
+}
 
 export default function Items() {
     const { user } = useAuth();
@@ -131,75 +163,207 @@ export default function Items() {
         });
     };
 
+    const rows = useMemo(() => data?.data ?? [], [data]);
+    const tracked = data?.total ?? rows.length;
+    const belowThreshold = rows.filter((i) => i.is_low_stock).length;
+    const stockAtCost = rows.reduce((sum, i) => sum + Number(i.asset_value ?? 0), 0);
+
+    const openAdjust = (item: Item) => {
+        setAdjusting(item);
+        setAdj({ type: 'add', quantity: '1', reason: '' });
+        setError(null);
+    };
+
+    const columns: Column<Item>[] = [
+        {
+            head: 'Component',
+            key: true,
+            cell: (item) => (
+                <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium text-ink">{item.name}</span>
+                    {item.sku && <span className="sp-code">{item.sku}</span>}
+                </span>
+            ),
+        },
+        { head: 'Category', cell: (item) => item.category_name ?? '—', hide: 'lg' },
+        { head: 'On hand', cell: (item) => <OnHand item={item} /> },
+        { head: 'Reserved', cell: (item) => number(item.quantity_reserved), align: 'end', code: true, hide: 'md' },
+        { head: 'Cost', cell: (item) => money(item.cost_price, currency), align: 'end', hide: 'lg' },
+        { head: 'Value', cell: (item) => money(item.asset_value, currency), align: 'end', code: true },
+        {
+            head: '',
+            align: 'end',
+            actions: true,
+            cell: (item) => (
+                <span className="flex items-center justify-end gap-1">
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => { e.stopPropagation(); openAdjust(item); }}
+                        aria-label={`Adjust stock for ${item.name}`}
+                    >
+                        Adjust
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => { e.stopPropagation(); openEdit(item); }}
+                        aria-label={`Edit ${item.name}`}
+                    >
+                        <Pencil className="size-3.5" aria-hidden="true" />
+                    </Button>
+                    {user?.role === 'admin' && (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`Delete ${item.name}?`)) remove.mutate(item.id);
+                            }}
+                            aria-label={`Delete ${item.name}`}
+                        >
+                            <Trash2 className="size-3.5" aria-hidden="true" />
+                        </Button>
+                    )}
+                </span>
+            ),
+        },
+    ];
+
     return (
-        <div>
+        <>
             <PageHeader
                 title="Items"
-                subtitle="Components you stock — cost, quantity and warning thresholds"
-                actions={<Button onClick={openNew}>+ Add item</Button>}
+                subtitle="Components you stock — cost, quantity and warning thresholds."
+                actions={
+                    <Button onClick={openNew}>
+                        <Plus className="size-4" aria-hidden="true" />
+                        Add item
+                    </Button>
+                }
             />
 
             <Flash message={flash} />
 
-            <div className="mb-4 flex flex-wrap items-end gap-3">
-                <Input label="Search" placeholder="Name or SKU…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="max-w-xs" />
-                <Select label="Category" value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} className="max-w-[160px]">
-                    <option value="">All</option>
-                    {catOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </Select>
-                <label className="flex items-center gap-2 text-sm text-gray-600">
-                    <input type="checkbox" checked={lowOnly} onChange={(e) => { setLowOnly(e.target.checked); setPage(1); }} />
-                    Low stock only
-                </label>
+            <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                <div className="border border-line bg-surface p-3">
+                    <div className="text-xs text-ink-subtle">Components tracked</div>
+                    <div className="sp-figure mt-1.5 text-2xl text-ink">{number(tracked)}</div>
+                    <div className="mt-1 text-xs text-ink-subtle">matching this filter</div>
+                </div>
+                <div className="border border-line bg-surface p-3">
+                    <div className="text-xs text-ink-subtle">Below threshold</div>
+                    <div className="sp-figure mt-1.5 text-2xl text-danger">{number(belowThreshold)}</div>
+                    <div className="mt-1 text-xs text-ink-subtle">on this page</div>
+                </div>
+                <div className="border border-line bg-surface p-3">
+                    <div className="text-xs text-ink-subtle">Stock at cost</div>
+                    <div className="sp-figure mt-1.5 text-2xl text-ink">{money(stockAtCost, currency)}</div>
+                    <div className="mt-1 text-xs text-ink-subtle">on this page</div>
+                </div>
             </div>
 
-            <Table
-                head={['Name', 'Category', 'On hand', 'Reserved', 'Available', 'Cost', 'Value', 'Status', '']}
-                empty={!isLoading && !data?.data?.length ? <EmptyState title="No items yet" hint="Add your first component, e.g. Thank-you card" /> : undefined}
-            >
-                {data?.data?.map((item) => (
-                    <Fragment key={item.id}>
-                    <tr className="hover:bg-gray-50">
-                        <td className="px-4 py-2">
-                            <div className="font-medium text-gray-800">{item.name}</div>
-                            {item.sku && <div className="text-xs text-gray-400">{item.sku}</div>}
-                        </td>
-                        <td className="px-4 py-2 text-gray-600">{item.category_name ?? '—'}</td>
-                        <td className={`px-4 py-2 font-medium ${item.quantity_on_hand < 0 ? 'text-red-600' : ''}`}>{number(item.quantity_on_hand)} {item.unit}</td>
-                        <td className="px-4 py-2 text-gray-500">{number(item.quantity_reserved)}</td>
-                        <td className={`px-4 py-2 ${item.available < 0 ? 'font-medium text-red-600' : ''}`}>{number(item.available)}</td>
-                        <td className="px-4 py-2">{money(item.cost_price, currency)}</td>
-                        <td className="px-4 py-2 text-gray-700">{money(item.asset_value, currency)}</td>
-                        <td className="px-4 py-2">{item.is_low_stock ? <Badge tone="red">Low</Badge> : <Badge tone="green">OK</Badge>}</td>
-                        <td className="px-4 py-2 text-right whitespace-nowrap">
-                            <Button size="sm" variant="ghost" onClick={() => setReservationsFor(reservationsFor === item.id ? null : item.id)}>
-                                {reservationsFor === item.id ? '▾' : '▸'} Reservations
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => { setAdjusting(item); setAdj({ type: 'add', quantity: '1', reason: '' }); setError(null); }}>Adjust</Button>
-                            <Button size="sm" variant="ghost" onClick={() => openEdit(item)}>Edit</Button>
-                            {user?.role === 'admin' && (
-                                <Button size="sm" variant="ghost" onClick={() => { if (confirm(`Delete ${item.name}?`)) remove.mutate(item.id); }}>🗑</Button>
-                            )}
-                        </td>
-                    </tr>
-                    {reservationsFor === item.id && (
-                        <tr>
-                            <td colSpan={9} className="bg-gray-50 px-4 py-3">
-                                <ReservationsPanel kind="item" id={item.id} />
-                            </td>
-                        </tr>
+            <Card bodyClassName="p-0">
+                <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
+                    <div className="relative min-w-0 flex-1 basis-full sm:basis-auto sm:max-w-xs">
+                        <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-ink-subtle" aria-hidden="true" />
+                        <Input
+                            value={search}
+                            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                            placeholder="Name or SKU…"
+                            aria-label="Search components"
+                            className="pl-8"
+                        />
+                    </div>
+                    <div className="w-40 shrink-0">
+                        <Select
+                            value={category}
+                            onChange={(e) => { setCategory(e.target.value); setPage(1); }}
+                            aria-label="Filter by category"
+                        >
+                            <option value="">All categories</option>
+                            {catOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </Select>
+                    </div>
+                    <div className="flex min-w-0 shrink-0 items-center sm:ml-auto">
+                        <Switch
+                            checked={lowOnly}
+                            onChange={(next) => { setLowOnly(next); setPage(1); }}
+                            label="Low stock only"
+                        />
+                    </div>
+                </div>
+
+                <div className="px-3 py-1">
+                    {isLoading ? (
+                        <TableSkeleton rows={6} cols={5} />
+                    ) : (
+                        <DataTable
+                            columns={columns}
+                            rows={rows}
+                            rowKey={(item) => item.id}
+                            onRowClick={(item) =>
+                                setReservationsFor((current) => (current === item.id ? null : item.id))
+                            }
+                            activeKey={reservationsFor}
+                            empty={
+                                <EmptyState
+                                    title="No items yet"
+                                    hint="Add your first component, e.g. Thank-you card."
+                                    action={<Button variant="secondary" onClick={openNew}>Add item</Button>}
+                                />
+                            }
+                        />
                     )}
-                    </Fragment>
+                </div>
+
+                {rows.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-3 py-2 text-xs text-ink-subtle">
+                        <span>
+                            Showing {number(rows.length)} of {number(tracked)} components
+                        </span>
+                        <span>Select a component to see the orders reserving it.</span>
+                    </div>
+                )}
+
+                {rows.filter((item) => item.id === reservationsFor).map((item) => (
+                    <div key={item.id} className="border-t-2 border-line-strong">
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                            <h2 className="min-w-0 text-sm font-semibold text-ink">
+                                Reservations · {item.name}
+                                {item.sku && <span className="sp-code ml-2 font-normal">{item.sku}</span>}
+                            </h2>
+                            <Button size="sm" variant="ghost" onClick={() => setReservationsFor(null)}>
+                                <X className="size-3.5" aria-hidden="true" />
+                                Close
+                            </Button>
+                        </div>
+                        <div className="px-3 pb-3">
+                            <ReservationsPanel kind="item" id={item.id} />
+                        </div>
+                    </div>
                 ))}
-            </Table>
+            </Card>
 
             <Pagination meta={data as never} onPage={setPage} />
 
-            <Modal open={formOpen} onClose={() => setFormOpen(false)} title={editing ? 'Edit item' : 'Add item'}>
+            <Modal
+                open={formOpen}
+                onClose={() => setFormOpen(false)}
+                title={editing ? 'Edit item' : 'Add item'}
+                footer={
+                    <>
+                        <Button variant="secondary" onClick={() => setFormOpen(false)}>Cancel</Button>
+                        <Button loading={save.isPending} onClick={submit}>
+                            {editing ? 'Save changes' : 'Create item'}
+                        </Button>
+                    </>
+                }
+            >
                 <div className="space-y-3">
                     <Flash message={error} tone="red" />
                     <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
                         <Input label="SKU" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
                         <Select label="Unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
                             {['pcs', 'box', 'set', 'roll', 'kg', 'piece'].map((u) => <option key={u}>{u}</option>)}
@@ -209,31 +373,44 @@ export default function Items() {
                         <option value="">—</option>
                         {catOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </Select>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
                         <Input label="Cost price *" type="number" step="0.01" value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} />
                         <Input label="Starting quantity" type="number" step="0.0001" value={form.quantity_on_hand} disabled={!!editing} onChange={(e) => setForm({ ...form, quantity_on_hand: e.target.value })} />
                     </div>
                     <Input label="Low-stock warning threshold" type="number" step="0.0001" value={form.low_stock_threshold} onChange={(e) => setForm({ ...form, low_stock_threshold: e.target.value })} />
-                    <Button className="w-full" loading={save.isPending} onClick={submit}>
-                        {editing ? 'Save changes' : 'Create item'}
-                    </Button>
                 </div>
             </Modal>
 
-            <Modal open={!!adjusting} onClose={() => setAdjusting(null)} title={`Adjust stock — ${adjusting?.name}`}>
+            <Modal
+                open={!!adjusting}
+                onClose={() => setAdjusting(null)}
+                title={adjusting ? `Adjust stock — ${adjusting.name}` : 'Adjust stock'}
+                description="A correction is a new movement. Rows in the ledger are never edited."
+                footer={
+                    <>
+                        <Button variant="secondary" onClick={() => setAdjusting(null)}>Cancel</Button>
+                        <Button loading={adjust.isPending} onClick={() => adjust.mutate(adj)}>Apply</Button>
+                    </>
+                }
+            >
                 <div className="space-y-3">
                     <Flash message={error} tone="red" />
+                    {adjusting && (
+                        <div className="sp-plate flex flex-wrap items-baseline justify-between gap-2 px-3 py-2.5">
+                            <span className="text-xs">On hand now</span>
+                            <span className="sp-figure text-xl">
+                                {number(adjusting.quantity_on_hand)} {adjusting.unit}
+                            </span>
+                        </div>
+                    )}
                     <Select label="Action" value={adj.type} onChange={(e) => setAdj({ ...adj, type: e.target.value })}>
                         <option value="add">Add stock</option>
                         <option value="remove">Remove stock</option>
                     </Select>
                     <Input label="Quantity *" type="number" step="0.0001" min="0" value={adj.quantity} onChange={(e) => setAdj({ ...adj, quantity: e.target.value })} />
                     <Input label="Reason" value={adj.reason} onChange={(e) => setAdj({ ...adj, reason: e.target.value })} />
-                    <Button className="w-full" loading={adjust.isPending} onClick={() => adjust.mutate(adj)}>
-                        Apply
-                    </Button>
                 </div>
             </Modal>
-        </div>
+        </>
     );
 }

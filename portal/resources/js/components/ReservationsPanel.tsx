@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiGet, errMsg } from '../lib/api';
 import { dateTime, number } from '../lib/format';
-import { Badge } from './ui';
+import { Badge, EmptyState, Tooltip } from './ui';
+import { DataTable, type Column } from './ui/DataTable';
+import { TableSkeleton } from './ui/States';
 
 type Kind = 'item' | 'product';
 type Tone = 'green' | 'red' | 'amber' | 'blue' | 'gray' | 'purple';
@@ -65,109 +67,134 @@ export function ReservationsPanel({ kind, id }: { kind: Kind; id: number }) {
     });
 
     if (isLoading) {
-        return <div className="px-1 py-2 text-xs text-gray-500">Loading reservations…</div>;
+        return (
+            <div className="border border-line bg-surface p-3">
+                <TableSkeleton rows={3} cols={4} />
+            </div>
+        );
     }
 
     if (isError) {
-        return <div className="px-1 py-2 text-xs text-red-600">{errMsg(error)}</div>;
+        return (
+            <div
+                role="alert"
+                className="border border-line border-l-2 border-l-danger bg-surface px-3 py-2.5 text-xs text-ink"
+            >
+                {errMsg(error)}
+            </div>
+        );
     }
 
     const rows = data?.reservations ?? [];
     const cached = kind === 'item' ? data?.item?.quantity_reserved : data?.product?.quantity_reserved;
     const total = Number(data?.total_reserved ?? 0);
+    const drift = cached != null && Math.abs(Number(cached) - total) > 0.0001;
 
-    return (
-        <div className="rounded-md border border-gray-200 bg-white">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 py-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Orders reserving this {kind}
-                </span>
-                <span className="text-xs text-gray-500">
-                    {rows.length} line{rows.length === 1 ? '' : 's'} · {number(total)} reserved
-                    {cached != null && Math.abs(Number(cached) - total) > 0.0001 && (
-                        <span
-                            className="ml-1 text-amber-600"
-                            title="The cached reserved quantity differs from the sum of the active reservation rows. The rows below are the actual orders; this usually means historical cache drift."
-                        >
-                            (cached: {number(cached)} — differs from listed rows)
-                        </span>
+    const columns: Column<ReservationRow>[] = [
+        {
+            head: 'Order',
+            key: true,
+            cell: (row) => (
+                <span className="flex min-w-0 flex-col">
+                    <span className="sp-code font-semibold">
+                        #{row.order_number ?? row.order_id}
+                    </span>
+                    {row.order_item_name && (
+                        <span className="truncate font-normal text-ink-subtle">{row.order_item_name}</span>
                     )}
                 </span>
+            ),
+        },
+        {
+            head: 'Status',
+            cell: (row) => (
+                <span className="flex flex-col items-start gap-1">
+                    <Badge tone={statusTone(row.order_status)}>{row.order_status ?? '—'}</Badge>
+                    <span className="sp-code text-ink-subtle">
+                        {row.reservation_state ?? '—'} · component: {row.component_status}
+                    </span>
+                </span>
+            ),
+        },
+        { head: 'Customer', cell: (row) => row.customer_name ?? '—', hide: 'lg' },
+        { head: 'Store', cell: (row) => row.store_name ?? '—', hide: 'lg' },
+        {
+            head: 'Reserved',
+            cell: (row) => <span className="font-semibold">{number(row.reserved_quantity)}</span>,
+            align: 'end',
+            code: true,
+        },
+        { head: 'Ordered', cell: (row) => number(row.total_quantity), align: 'end', code: true, hide: 'md' },
+        {
+            head: kind === 'product' ? 'Usage' : 'Sellable product',
+            cell: (row) =>
+                kind === 'product' ? (
+                    row.usage === 'component' ? (
+                        <span>
+                            Component of <span className="font-semibold text-ink">{row.sellable_product?.name ?? 'another product'}</span>
+                        </span>
+                    ) : (
+                        <Badge tone="gray">Direct</Badge>
+                    )
+                ) : (
+                    <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{row.sellable_product?.name ?? '—'}</span>
+                        {row.quantity_per_unit > 0 && (
+                            <span className="sp-code text-ink-subtle">
+                                {number(row.quantity_per_unit)} per unit
+                            </span>
+                        )}
+                    </span>
+                ),
+        },
+        {
+            head: 'Reserved at',
+            cell: (row) => (
+                <span className="sp-code">{dateTime(row.reserved_at ?? row.order_created_at)}</span>
+            ),
+            hide: 'md',
+        },
+    ];
+
+    return (
+        <section className="border border-line bg-surface">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-line-strong px-3 py-2">
+                <h3 className="text-xs font-semibold tracking-wide text-ink-muted uppercase">
+                    Orders reserving this {kind}
+                </h3>
+                <span className="flex flex-wrap items-center gap-1.5 text-xs text-ink-subtle">
+                    <span className="sp-code">
+                        {rows.length} line{rows.length === 1 ? '' : 's'}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className="sp-code">{number(total)} reserved</span>
+                    {drift && (
+                        <Tooltip label="The cached reserved quantity differs from the sum of the active reservation rows. The rows below are the actual orders; this usually means historical cache drift.">
+                            <Badge tone="amber">cached {number(cached)} · differs</Badge>
+                        </Tooltip>
+                    )}
+                </span>
+            </header>
+
+            <div className="px-1 py-1">
+                <DataTable
+                    columns={columns}
+                    rows={rows}
+                    rowKey={(row) => row.component_id}
+                    empty={
+                        <EmptyState
+                            title="No active reservations"
+                            hint="Nothing is holding this stock right now."
+                        />
+                    }
+                />
             </div>
 
-            {rows.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-gray-500">No active reservations.</div>
-            ) : (
-                <div className="overflow-x-auto">
-                    <table className="min-w-full text-xs">
-                        <thead className="bg-gray-50 text-left text-[11px] uppercase text-gray-500">
-                            <tr>
-                                <th className="px-3 py-1.5">Order</th>
-                                <th className="px-3 py-1.5">Status</th>
-                                <th className="px-3 py-1.5">Customer</th>
-                                <th className="px-3 py-1.5">Store</th>
-                                <th className="px-3 py-1.5 text-right">Reserved</th>
-                                <th className="px-3 py-1.5 text-right">Ordered</th>
-                                <th className="px-3 py-1.5">{kind === 'product' ? 'Usage' : 'Sellable product'}</th>
-                                <th className="px-3 py-1.5">Reserved at</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {rows.map((row) => (
-                                <tr key={row.component_id}>
-                                    <td className="px-3 py-1.5">
-                                        <div className="font-medium text-gray-800">#{row.order_number ?? row.order_id}</div>
-                                        {row.order_item_name && (
-                                            <div className="text-[11px] text-gray-400">{row.order_item_name}</div>
-                                        )}
-                                    </td>
-                                    <td className="px-3 py-1.5">
-                                        <Badge tone={statusTone(row.order_status)}>{row.order_status ?? '—'}</Badge>
-                                        <div className="mt-0.5 text-[11px] text-gray-400">
-                                            {row.reservation_state ?? '—'} · component: {row.component_status}
-                                        </div>
-                                    </td>
-                                    <td className="px-3 py-1.5 text-gray-600">{row.customer_name ?? '—'}</td>
-                                    <td className="px-3 py-1.5 text-gray-600">{row.store_name ?? '—'}</td>
-                                    <td className="px-3 py-1.5 text-right font-medium text-gray-800">
-                                        {number(row.reserved_quantity)}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-right text-gray-600">{number(row.total_quantity)}</td>
-                                    <td className="px-3 py-1.5 text-gray-600">
-                                        {kind === 'product' ? (
-                                            row.usage === 'component' ? (
-                                                <span>
-                                                    Component of <b>{row.sellable_product?.name ?? 'another product'}</b>
-                                                </span>
-                                            ) : (
-                                                <Badge tone="gray">Direct</Badge>
-                                            )
-                                        ) : (
-                                            <>
-                                                <div>{row.sellable_product?.name ?? '—'}</div>
-                                                {row.quantity_per_unit > 0 && (
-                                                    <div className="text-[11px] text-gray-400">
-                                                        {number(row.quantity_per_unit)} per unit
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-gray-500">
-                                        {dateTime(row.reserved_at ?? row.order_created_at)}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-
             {data?.truncated && (
-                <div className="px-3 py-2 text-[11px] text-amber-600">
-                    Showing the first 200 reservation lines.
+                <div className="border-t border-line px-3 py-2">
+                    <Badge tone="amber">Showing the first 200 reservation lines</Badge>
                 </div>
             )}
-        </div>
+        </section>
     );
 }
