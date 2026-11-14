@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
+import { BarChart3 } from 'lucide-react';
 import { useState } from 'react';
 import { apiGet } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { date, money, number } from '../lib/format';
-import { Card, EmptyState, PageHeader, Table } from '../components/ui';
+import { Card, EmptyState, PageHeader, Tabs } from '../components/ui';
+import { DataTable, type Column } from '../components/ui/DataTable';
 
 interface AssetReport {
     total: number;
@@ -19,6 +21,18 @@ interface Consumption {
     consumption: Array<{ item_id: number; item_name: string; quantity_consumed: number; cost: number; events: number }>;
 }
 
+const TABS: { id: 'asset' | 'consumption'; label: string }[] = [
+    { id: 'asset', label: 'Asset value' },
+    { id: 'consumption', label: 'Consumption' },
+];
+
+interface ValueLine {
+    id: number;
+    label: string;
+    units: number;
+    value: number;
+}
+
 export default function Reports() {
     const { user } = useAuth();
     const currency = user?.organization?.currency ?? 'BDT';
@@ -27,112 +41,189 @@ export default function Reports() {
     const asset = useQuery({ queryKey: ['report-asset'], queryFn: () => apiGet<AssetReport>('/reports/asset-value') });
     const consumption = useQuery({ queryKey: ['report-consumption'], queryFn: () => apiGet<Consumption>('/reports/consumption') });
 
+    const assetLines: ValueLine[] = (asset.data?.by_category ?? []).map((c) => ({
+        id: c.category_id,
+        label: c.category_name,
+        units: c.quantity,
+        value: c.value,
+    }));
+
+    const consumptionLines: ValueLine[] = (consumption.data?.consumption ?? []).map((c) => ({
+        id: c.item_id,
+        label: c.item_name,
+        units: c.quantity_consumed,
+        value: c.cost,
+    }));
+
+    const assetColumns: Column<ValueLine>[] = [
+        { head: 'Category', key: true, cell: (line) => <span className="font-medium text-ink">{line.label}</span> },
+        { head: 'Units', cell: (line) => number(line.units), align: 'end', code: true },
+        { head: 'Value', cell: (line) => money(line.value, currency), align: 'end', code: true },
+    ];
+
+    const consumptionColumns: Column<ValueLine>[] = [
+        { head: 'Item', key: true, cell: (line) => <span className="font-medium text-ink">{line.label}</span> },
+        { head: 'Units consumed', cell: (line) => number(line.units), align: 'end', code: true },
+        { head: 'COGS', cell: (line) => money(line.value, currency), align: 'end', code: true },
+    ];
+
+    const itemColumns: Column<AssetReport['by_item'][number]>[] = [
+        { head: 'Item', key: true, cell: (item) => <span className="font-medium text-ink">{item.name}</span> },
+        { head: 'Category', hide: 'md', cell: (item) => item.category ?? '—' },
+        { head: 'On hand', align: 'end', code: true, cell: (item) => number(item.quantity_on_hand) },
+        { head: 'Cost', align: 'end', code: true, hide: 'md', cell: (item) => money(item.cost_price, currency) },
+        { head: 'Value', align: 'end', code: true, cell: (item) => money(item.value, currency) },
+    ];
+
+    const productColumns: Column<AssetReport['by_product'][number]>[] = [
+        { head: 'Product', key: true, cell: (product) => <span className="font-medium text-ink">{product.name}</span> },
+        { head: 'SKU', hide: 'lg', code: true, cell: (product) => product.sku ?? '—' },
+        { head: 'On hand', align: 'end', code: true, cell: (product) => number(product.quantity_on_hand) },
+        { head: 'Reserved', align: 'end', code: true, hide: 'md', cell: (product) => number(product.quantity_reserved) },
+        { head: 'Cost', align: 'end', code: true, hide: 'md', cell: (product) => money(product.cost, currency) },
+        { head: 'Value', align: 'end', code: true, cell: (product) => money(product.value, currency) },
+    ];
+
+    const snapshotColumns: Column<AssetReport['snapshots'][number]>[] = [
+        { head: 'Captured', key: true, code: true, cell: (snapshot) => date(snapshot.captured_at) },
+        { head: 'Total value', align: 'end', code: true, cell: (snapshot) => money(snapshot.total_value, currency) },
+    ];
+
+    const assetTotal = assetLines.reduce((sum, line) => sum + line.value, 0);
+    const consumptionTotal = consumptionLines.reduce((sum, line) => sum + line.value, 0);
+
     return (
         <div>
-            <PageHeader title="Reports" subtitle="Asset value and component consumption" />
+            <PageHeader
+                title="Reports"
+                subtitle="What the stock is worth and what it consumed, taken from the ledger at a point in time."
+            />
 
-            <div className="mb-4 flex gap-2">
-                {(['asset', 'consumption'] as const).map((t) => (
-                    <button
-                        key={t}
-                        onClick={() => setTab(t)}
-                        className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === t ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-300 hover:bg-gray-50'}`}
-                    >
-                        {t === 'asset' ? 'Asset value' : 'Consumption'}
-                    </button>
-                ))}
+            <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                <div className="border border-line bg-surface p-3">
+                    <div className="text-xs text-ink-subtle">Total asset value</div>
+                    <div className="sp-figure mt-1.5 text-2xl text-ink">{money(asset.data?.total ?? 0, currency)}</div>
+                    <div className="mt-1 text-xs text-ink-subtle">raw materials plus finished goods</div>
+                </div>
+                <div className="border border-line bg-surface p-3">
+                    <div className="text-xs text-ink-subtle">Raw materials</div>
+                    <div className="sp-figure mt-1.5 text-2xl text-ink">{money(asset.data?.materials_total ?? 0, currency)}</div>
+                    <div className="mt-1 text-xs text-ink-subtle">components and supplies</div>
+                </div>
+                <div className="border border-line bg-surface p-3">
+                    <div className="text-xs text-ink-subtle">Finished goods</div>
+                    <div className="sp-figure mt-1.5 text-2xl text-ink">{money(asset.data?.finished_total ?? 0, currency)}</div>
+                    <div className="mt-1 text-xs text-ink-subtle">products with their own stock</div>
+                </div>
             </div>
 
-            {tab === 'asset' && (
-                <div className="space-y-4">
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <Card title="Total asset value">
-                            <div className="text-3xl font-bold text-indigo-700">{money(asset.data?.total ?? 0, currency)}</div>
-                            <div className="text-xs text-gray-500">Items + finished goods</div>
-                        </Card>
-                        <Card title="Raw materials (items)">
-                            <div className="text-xl font-semibold">{money(asset.data?.materials_total ?? 0, currency)}</div>
-                            <div className="text-xs text-gray-500">Components & supplies</div>
-                        </Card>
-                        <Card title="Finished goods (products)">
-                            <div className="text-xl font-semibold">{money(asset.data?.finished_total ?? 0, currency)}</div>
-                            <div className="text-xs text-gray-500">Products with their own stock</div>
-                        </Card>
-                        {asset.data?.by_category.map((c) => (
-                            <Card key={c.category_id} title={c.category_name}>
-                                <div className="text-xl font-semibold">{money(c.value, currency)}</div>
-                                <div className="text-xs text-gray-500">{number(c.quantity)} units on hand</div>
-                            </Card>
-                        ))}
-                    </div>
+            <Card bodyClassName="p-0">
+                <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
+                    <Tabs items={TABS} value={tab} onChange={setTab} />
+                    <span className="ml-auto text-xs text-ink-subtle">
+                        {tab === 'asset' ? 'valued at unit cost' : 'components consumed by completed orders'}
+                    </span>
+                </div>
 
-                    <Card title="Value by item">
-                        <Table
-                            head={['Item', 'Category', 'On hand', 'Cost', 'Value']}
-                            empty={!asset.data?.by_item?.length ? <EmptyState title="No items" /> : undefined}
-                        >
-                            {asset.data?.by_item.map((i) => (
-                                <tr key={i.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-2 font-medium text-gray-800">{i.name}</td>
-                                    <td className="px-4 py-2 text-gray-600">{i.category ?? '—'}</td>
-                                    <td className="px-4 py-2">{number(i.quantity_on_hand)}</td>
-                                    <td className="px-4 py-2">{money(i.cost_price, currency)}</td>
-                                    <td className="px-4 py-2 font-medium">{money(i.value, currency)}</td>
-                                </tr>
-                            ))}
-                        </Table>
+                {tab === 'asset' ? (
+                    <>
+                        <div className="px-3 py-1">
+                            <DataTable
+                                columns={assetColumns}
+                                rows={assetLines}
+                                rowKey={(line) => line.id}
+                                empty={
+                                    <EmptyState
+                                        title="No stock to value yet"
+                                        hint="Add items or finished goods and their value will appear here."
+                                    />
+                                }
+                            />
+                        </div>
+                        <div className="flex items-center justify-between gap-2 border-t-2 border-line-strong px-3 py-2.5">
+                            <span className="text-sm font-semibold text-ink">Total</span>
+                            <span className="sp-figure text-lg text-ink">{money(assetTotal, currency)}</span>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="px-3 py-1">
+                            <DataTable
+                                columns={consumptionColumns}
+                                rows={consumptionLines}
+                                rowKey={(line) => line.id}
+                                empty={
+                                    <EmptyState
+                                        title="Nothing consumed yet"
+                                        hint="Complete some orders to see component consumption."
+                                    />
+                                }
+                            />
+                        </div>
+                        <div className="flex items-center justify-between gap-2 border-t-2 border-line-strong px-3 py-2.5">
+                            <span className="text-sm font-semibold text-ink">Total consumed</span>
+                            <span className="sp-figure text-lg text-ink">{money(consumptionTotal, currency)}</span>
+                        </div>
+                    </>
+                )}
+            </Card>
+
+            {tab === 'asset' && (
+                <div className="mt-4 space-y-4">
+                    <Card title="Value by item" description="Raw materials at unit cost" bodyClassName="p-0">
+                        <div className="px-3 py-1">
+                            <DataTable
+                                columns={itemColumns}
+                                rows={asset.data?.by_item ?? []}
+                                rowKey={(item) => item.id}
+                                empty={
+                                    <EmptyState
+                                        title="No items yet"
+                                        hint="Components and supplies appear here once they are stocked."
+                                    />
+                                }
+                            />
+                        </div>
                     </Card>
 
-                    <Card title="Value by finished goods (products)">
-                        <Table
-                            head={['Product', 'SKU', 'On hand', 'Reserved', 'Cost', 'Value']}
-                            empty={!asset.data?.by_product?.length ? <EmptyState title="No products" hint="Products with their own stock will be valued here" /> : undefined}
-                        >
-                            {asset.data?.by_product.map((p) => (
-                                <tr key={p.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-2 font-medium text-gray-800">{p.name}</td>
-                                    <td className="px-4 py-2 text-gray-600">{p.sku ?? '—'}</td>
-                                    <td className="px-4 py-2">{number(p.quantity_on_hand)}</td>
-                                    <td className="px-4 py-2 text-gray-600">{number(p.quantity_reserved)}</td>
-                                    <td className="px-4 py-2">{money(p.cost, currency)}</td>
-                                    <td className="px-4 py-2 font-medium">{money(p.value, currency)}</td>
-                                </tr>
-                            ))}
-                        </Table>
+                    <Card
+                        title="Value by finished goods"
+                        description="Products held in their own right, separate from their recipe components"
+                        bodyClassName="p-0"
+                    >
+                        <div className="px-3 py-1">
+                            <DataTable
+                                columns={productColumns}
+                                rows={asset.data?.by_product ?? []}
+                                rowKey={(product) => product.id}
+                                empty={
+                                    <EmptyState
+                                        title="No products yet"
+                                        hint="Products with their own stock will be valued here."
+                                    />
+                                }
+                            />
+                        </div>
                     </Card>
 
                     {asset.data?.snapshots?.length ? (
-                        <Card title="Value history">
-                            <Table head={['Date', 'Total value']}>
-                                {asset.data.snapshots.map((s, i) => (
-                                    <tr key={i}>
-                                        <td className="px-4 py-1.5">{date(s.captured_at)}</td>
-                                        <td className="px-4 py-1.5">{money(s.total_value, currency)}</td>
-                                    </tr>
-                                ))}
-                            </Table>
+                        <Card title="Value history" description="One capture per run, newest first" bodyClassName="p-0">
+                            <div className="px-3 py-1">
+                                <DataTable
+                                    columns={snapshotColumns}
+                                    rows={asset.data.snapshots}
+                                    rowKey={(snapshot) => `${snapshot.captured_at}-${snapshot.total_value}`}
+                                />
+                            </div>
                         </Card>
                     ) : null}
                 </div>
             )}
 
-            {tab === 'consumption' && (
-                <Card title="Components consumed by completed orders">
-                    <Table
-                        head={['Item', 'Quantity consumed', 'COGS', 'Events']}
-                        empty={!consumption.data?.consumption?.length ? <EmptyState title="Nothing consumed yet" hint="Complete some orders to see consumption" /> : undefined}
-                    >
-                        {consumption.data?.consumption.map((c) => (
-                            <tr key={c.item_id} className="hover:bg-gray-50">
-                                <td className="px-4 py-2 font-medium text-gray-800">{c.item_name}</td>
-                                <td className="px-4 py-2">{number(c.quantity_consumed)}</td>
-                                <td className="px-4 py-2">{money(c.cost, currency)}</td>
-                                <td className="px-4 py-2">{c.events}</td>
-                            </tr>
-                        ))}
-                    </Table>
-                </Card>
-            )}
+            <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-subtle">
+                <BarChart3 className="size-3.5" aria-hidden="true" />
+                Figures are derived from the append-only movement ledger, so a past report can always be rebuilt exactly.
+            </p>
         </div>
     );
 }

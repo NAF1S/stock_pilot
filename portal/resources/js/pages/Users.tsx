@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, UserPlus, Users as UsersIcon } from 'lucide-react';
 import { useState } from 'react';
 import { apiDelete, apiGet, apiPatch, apiPost, errMsg } from '../lib/api';
-import { Badge, Button, Flash, Input, Modal, PageHeader, Select, Table } from '../components/ui';
+import { Avatar, Badge, Button, Card, EmptyState, Flash, Input, Modal, PageHeader, Select } from '../components/ui';
+import { DataTable, type Column } from '../components/ui/DataTable';
+import { roleTone } from '../lib/status';
 
 interface User {
     id: number;
@@ -12,9 +15,13 @@ interface User {
     last_login_at: string | null;
 }
 
-const roles = ['admin', 'manager', 'staff'];
+const roles = ['admin', 'manager', 'staff'] as const;
 
-const roleTone: Record<string, 'purple' | 'blue' | 'gray'> = { admin: 'purple', manager: 'blue', staff: 'gray' };
+const ROLE_HINT: Record<User['role'], string> = {
+    admin: 'Everything, including team accounts and store keys',
+    manager: 'Stock, orders and reports, no team or keys',
+    staff: 'Stock and orders only',
+};
 
 export default function Users() {
     const qc = useQueryClient();
@@ -47,48 +54,162 @@ export default function Users() {
         onError: (e) => setFlash(errMsg(e)),
     });
 
+    const members = data?.users ?? [];
+    const activeCount = members.filter((m) => m.is_active).length;
+
+    const columns: Column<User>[] = [
+        {
+            head: 'Member',
+            key: true,
+            cell: (member) => (
+                <span className="flex min-w-0 items-center gap-2">
+                    <Avatar name={member.name} className="size-7" />
+                    <span className="flex min-w-0 flex-col">
+                        <span className="truncate font-medium text-ink">{member.name}</span>
+                        <span className="sp-code truncate">{member.email}</span>
+                    </span>
+                </span>
+            ),
+        },
+        {
+            head: 'Role',
+            cell: (member) => <Badge tone={roleTone(member.role)}>{member.role}</Badge>,
+        },
+        {
+            head: 'Status',
+            cell: (member) => (
+                <Badge tone={member.is_active ? 'green' : 'gray'} dot>
+                    {member.is_active ? 'active' : 'deactivated'}
+                </Badge>
+            ),
+        },
+        {
+            head: 'Last login',
+            hide: 'md',
+            cell: (member) => (
+                <span className="sp-code text-xs">
+                    {member.last_login_at ? new Date(member.last_login_at).toLocaleString() : 'never'}
+                </span>
+            ),
+        },
+        {
+            head: '',
+            align: 'end',
+            actions: true,
+            cell: (member) => (
+                <span className="flex items-center justify-end gap-1">
+                    <Select
+                        aria-label={`Change the role for ${member.name}`}
+                        value={member.role}
+                        onChange={(e) => setRole.mutate({ id: member.id, role: e.target.value })}
+                        className="w-28 py-1 text-xs"
+                    >
+                        {roles.map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                        ))}
+                    </Select>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={member.is_active ? `Deactivate ${member.name}` : `Activate ${member.name}`}
+                        onClick={() => toggle.mutate({ id: member.id, active: member.is_active })}
+                    >
+                        {member.is_active ? 'Deactivate' : 'Activate'}
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Remove ${member.name}`}
+                        onClick={() => { if (confirm(`Remove ${member.name}?`)) remove.mutate(member.id); }}
+                    >
+                        Remove
+                    </Button>
+                </span>
+            ),
+        },
+    ];
+
     return (
         <div>
-            <PageHeader title="Team" subtitle="Staff accounts with role-based permissions" actions={<Button onClick={() => setCreateOpen(true)}>+ Add member</Button>} />
+            <PageHeader
+                title="Team"
+                subtitle="Staff accounts and what each role can reach."
+                actions={
+                    <Button onClick={() => setCreateOpen(true)}>
+                        <UserPlus className="size-4" aria-hidden="true" />
+                        Add member
+                    </Button>
+                }
+            />
 
             <Flash message={flash} />
             <Flash message={error} tone="red" />
 
-            <Table head={['Name', 'Email', 'Role', 'Status', 'Last login', '']}>
-                {data?.users.map((u) => (
-                    <tr key={u.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 font-medium text-gray-800">{u.name}</td>
-                        <td className="px-4 py-2 text-gray-600">{u.email}</td>
-                        <td className="px-4 py-2">
-                            <Select
-                                value={u.role}
-                                onChange={(e) => setRole.mutate({ id: u.id, role: e.target.value })}
-                                className="max-w-[120px] py-1"
-                            >
-                                {roles.map((r) => <option key={r} value={r}>{r}</option>)}
-                            </Select>
-                        </td>
-                        <td className="px-4 py-2">{u.is_active ? <Badge tone="green">active</Badge> : <Badge tone="red">inactive</Badge>}</td>
-                        <td className="px-4 py-2 text-gray-500">{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}</td>
-                        <td className="px-4 py-2 text-right whitespace-nowrap">
-                            <Button size="sm" variant="ghost" onClick={() => toggle.mutate({ id: u.id, active: u.is_active })}>
-                                {u.is_active ? 'Deactivate' : 'Activate'}
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => { if (confirm(`Remove ${u.name}?`)) remove.mutate(u.id); }}>🗑</Button>
-                        </td>
-                    </tr>
+            <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                {roles.map((role) => (
+                    <div key={role} className="border border-line bg-surface p-3">
+                        <div className="flex items-baseline justify-between gap-2">
+                            <Badge tone={roleTone(role)}>{role}</Badge>
+                            <span className="sp-figure text-lg text-ink">
+                                {members.filter((m) => m.role === role).length}
+                            </span>
+                        </div>
+                        <p className="mt-2 text-xs text-ink-muted">{ROLE_HINT[role]}</p>
+                    </div>
                 ))}
-            </Table>
+            </div>
 
-            <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Add team member">
+            <Card bodyClassName="p-0">
+                <div className="border-b border-line px-3 py-2.5">
+                    <span className="text-xs text-ink-subtle">
+                        {members.length} members · {activeCount} active
+                    </span>
+                </div>
+                <div className="px-3 py-1">
+                    <DataTable
+                        columns={columns}
+                        rows={members}
+                        rowKey={(member) => member.id}
+                        empty={
+                            <EmptyState
+                                title="No members yet"
+                                hint="Add a team member to give someone access to this portal."
+                                icon={<UsersIcon className="size-5" aria-hidden="true" />}
+                                action={
+                                    <Button size="sm" onClick={() => setCreateOpen(true)}>
+                                        Add member
+                                    </Button>
+                                }
+                            />
+                        }
+                    />
+                </div>
+            </Card>
+
+            <Modal
+                open={createOpen}
+                onClose={() => setCreateOpen(false)}
+                title="Add a team member"
+                description="They sign in with the email and password you set here."
+                footer={
+                    <>
+                        <Button variant="secondary" onClick={() => setCreateOpen(false)}>Cancel</Button>
+                        <Button loading={create.isPending} onClick={() => create.mutate()}>
+                            <Plus className="size-4" aria-hidden="true" />
+                            Add member
+                        </Button>
+                    </>
+                }
+            >
                 <div className="space-y-3">
-                    <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                    <Input label="Email *" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                    <Input label="Name *" placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                    <Input label="Email *" type="email" placeholder="name@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                     <Input label="Password *" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
                     <Select label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                        {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+                        {roles.map((r) => (
+                            <option key={r} value={r}>{r} · {ROLE_HINT[r]}</option>
+                        ))}
                     </Select>
-                    <Button className="w-full" loading={create.isPending} onClick={() => create.mutate()}>Add</Button>
                 </div>
             </Modal>
         </div>
