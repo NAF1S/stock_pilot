@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#2f4bd0">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <title>{{ config('app.name', 'StockPilot') }}</title>
     <script>
         // Apply the stored theme before first paint to avoid a flash.

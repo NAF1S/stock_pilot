@@ -21,21 +21,10 @@ const FOOTER = [
         ],
     },
     {
-        title: 'Resources',
+        title: 'Get started',
         links: [
-            { label: 'Documentation', to: '#' },
-            { label: 'Changelog', to: '#' },
-            { label: 'Forecasting guide', to: '#' },
-            { label: 'Status', to: '#' },
-        ],
-    },
-    {
-        title: 'Company',
-        links: [
-            { label: 'About', to: '#' },
-            { label: 'Contact', to: '#' },
-            { label: 'Privacy', to: '#' },
-            { label: 'Terms', to: '#' },
+            { label: 'Open a workspace', to: '/register' },
+            { label: 'Sign in', to: '/login' },
         ],
     },
 ];

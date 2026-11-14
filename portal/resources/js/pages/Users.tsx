@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, UserPlus, Users as UsersIcon } from 'lucide-react';
 import { useState } from 'react';
 import { apiDelete, apiGet, apiPatch, apiPost, errMsg } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { Avatar, Badge, Button, Card, EmptyState, Flash, Input, Modal, PageHeader, Select } from '../components/ui';
 import { DataTable, type Column } from '../components/ui/DataTable';
 import { roleTone } from '../lib/status';
@@ -24,13 +25,15 @@ const ROLE_HINT: Record<User['role'], string> = {
 };
 
 export default function Users() {
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'admin';
     const qc = useQueryClient();
     const [flash, setFlash] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [createOpen, setCreateOpen] = useState(false);
     const [form, setForm] = useState({ name: '', email: '', password: '', role: 'staff' });
 
-    const { data } = useQuery({ queryKey: ['users'], queryFn: () => apiGet<{ users: User[] }>('/users') });
+    const { data, error: queryError } = useQuery({ queryKey: ['users'], queryFn: () => apiGet<{ users: User[] }>('/users') });
 
     const create = useMutation({
         mutationFn: () => apiPost('/users', form),
@@ -96,36 +99,37 @@ export default function Users() {
             head: '',
             align: 'end',
             actions: true,
-            cell: (member) => (
-                <span className="flex items-center justify-end gap-1">
-                    <Select
-                        aria-label={`Change the role for ${member.name}`}
-                        value={member.role}
-                        onChange={(e) => setRole.mutate({ id: member.id, role: e.target.value })}
-                        className="w-28 py-1 text-xs"
-                    >
-                        {roles.map((r) => (
-                            <option key={r} value={r}>{r}</option>
-                        ))}
-                    </Select>
-                    <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={member.is_active ? `Deactivate ${member.name}` : `Activate ${member.name}`}
-                        onClick={() => toggle.mutate({ id: member.id, active: member.is_active })}
-                    >
-                        {member.is_active ? 'Deactivate' : 'Activate'}
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Remove ${member.name}`}
-                        onClick={() => { if (confirm(`Remove ${member.name}?`)) remove.mutate(member.id); }}
-                    >
-                        Remove
-                    </Button>
-                </span>
-            ),
+            cell: (member) =>
+                isAdmin ? (
+                    <span className="flex items-center justify-end gap-1">
+                        <Select
+                            aria-label={`Change the role for ${member.name}`}
+                            value={member.role}
+                            onChange={(e) => setRole.mutate({ id: member.id, role: e.target.value })}
+                            className="w-28 py-1 text-xs"
+                        >
+                            {roles.map((r) => (
+                                <option key={r} value={r}>{r}</option>
+                            ))}
+                        </Select>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={member.is_active ? `Deactivate ${member.name}` : `Activate ${member.name}`}
+                            onClick={() => toggle.mutate({ id: member.id, active: member.is_active })}
+                        >
+                            {member.is_active ? 'Deactivate' : 'Activate'}
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Remove ${member.name}`}
+                            onClick={() => { if (confirm(`Remove ${member.name}?`)) remove.mutate(member.id); }}
+                        >
+                            Remove
+                        </Button>
+                    </span>
+                ) : null,
         },
     ];
 
@@ -135,15 +139,25 @@ export default function Users() {
                 title="Team"
                 subtitle="Staff accounts and what each role can reach."
                 actions={
-                    <Button onClick={() => setCreateOpen(true)}>
-                        <UserPlus className="size-4" aria-hidden="true" />
-                        Add member
-                    </Button>
+                    isAdmin ? (
+                        <Button onClick={() => setCreateOpen(true)}>
+                            <UserPlus className="size-4" aria-hidden="true" />
+                            Add member
+                        </Button>
+                    ) : undefined
                 }
             />
 
             <Flash message={flash} />
             <Flash message={error} tone="red" />
+            <Flash message={queryError ? errMsg(queryError) : null} tone="red" />
+
+            {queryError && (
+                <p className="mb-4 text-sm text-ink-muted">
+                    Team management is limited to administrators. Ask an admin in your workspace to
+                    change roles or invite people.
+                </p>
+            )}
 
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
                 {roles.map((role) => (
@@ -173,12 +187,18 @@ export default function Users() {
                         empty={
                             <EmptyState
                                 title="No members yet"
-                                hint="Add a team member to give someone access to this portal."
+                                hint={
+                                    isAdmin
+                                        ? 'Add a team member to give someone access to this portal.'
+                                        : 'Only an administrator can see or invite team members.'
+                                }
                                 icon={<UsersIcon className="size-5" aria-hidden="true" />}
                                 action={
-                                    <Button size="sm" onClick={() => setCreateOpen(true)}>
-                                        Add member
-                                    </Button>
+                                    isAdmin ? (
+                                        <Button size="sm" onClick={() => setCreateOpen(true)}>
+                                            Add member
+                                        </Button>
+                                    ) : undefined
                                 }
                             />
                         }
