@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
+import { Pause, Play } from 'lucide-react';
 import { SectionHead } from '../../components/marketing';
+import { cn } from '../../lib/cn';
 
 /* -------------------------------------------------------------- the board */
 
@@ -85,10 +88,10 @@ function Hero() {
             <div className="container">
                 <div className="wm-hero__grid">
                     <div className="wm-hero__head">
-                        <h1>Inventory that knows what a kit is</h1>
+                        <h1>Know what sells, what's left, and what's next</h1>
                         <div className="wm-hero__copy">
                             <p className="lead">
-                                Track every component, recipe and order for kits built on WooCommerce.
+                                Sync your WooCommerce store and forecast demand from your own sales history.
                             </p>
                             <div className="wm-hero__actions">
                                 <Link to="/register" className="btn btn--accent">
@@ -101,20 +104,20 @@ function Hero() {
                         </div>
                         <dl className="wm-hero__facts">
                             <div>
-                                <dt>Ledger</dt>
-                                <dd>Append-only, no edits</dd>
+                                <dt>Sync</dt>
+                                <dd>Read-only, from WooCommerce</dd>
                             </div>
                             <div>
-                                <dt>Recipes</dt>
-                                <dd>Nested up to ten levels</dd>
+                                <dt>Forecast</dt>
+                                <dd>Trained on your own sales</dd>
                             </div>
                             <div>
-                                <dt>Bridge</dt>
-                                <dd>Read-only, never writes back</dd>
+                                <dt>Runway</dt>
+                                <dd>Days left, per item</dd>
                             </div>
                             <div>
-                                <dt>Forecasting</dt>
-                                <dd>Your own movements only</dd>
+                                <dt>Customers</dt>
+                                <dd>Who buys what, and when</dd>
                             </div>
                         </dl>
                     </div>
@@ -128,70 +131,69 @@ function Hero() {
     );
 }
 
-/* -------------------------------------------------------------- recipe tree */
+/* --------------------------------------------------------------- features */
 
-const RECIPE = [
-    { id: 'box', name: 'Kraft box medium', note: 'BOX-M-001', qty: '1', cost: '45.00' },
-    { id: 'tissue', name: 'Tissue paper sheet', note: 'TIS-A4, 16.00 a sheet', qty: '2', cost: '32.00' },
-    { id: 'ribbon', name: 'Satin ribbon 20mm', note: 'RIB-SAT-20, 22.50 a metre', qty: '1.5', cost: '33.75' },
-    { id: 'soap', name: 'Handmade soap', note: 'Sub-product, has its own recipe', qty: '1', cost: '120.00', sub: true },
+const IMPORT_ROWS = [
+    { id: 'row-1', name: 'Kraft box medium', note: 'BOX-M-001 · 120 on hand', qty: 'ok', cost: 'Matched' },
+    { id: 'row-2', name: 'Satin ribbon 20mm', note: 'RIB-SAT-20 · 340 m', qty: 'ok', cost: 'Matched' },
+    { id: 'row-3', name: 'Tissue paper sheet', note: 'TIS-A4 · 900 sheets', qty: 'ok', cost: 'Matched' },
+    { id: 'row-4', name: 'Handmade soap', note: 'No SKU in the sheet', qty: 'new', cost: 'Created', sub: true },
 ];
 
-function Recipes() {
+function Features() {
     return (
         <section id="features" className="sec sec--paper-3">
             <div className="container">
                 <SectionHead
-                    title="Every kit is a recipe"
-                    line="A product that contains a product is still one deduction, level by level."
+                    title="Bring your own data in"
+                    line="Import items, opening stock and recipes from a spreadsheet, then keep them in sync."
                     aside={
                         <p className="fine">
-                            Signature Gift Set, as its recipe reads. Sub-products are expanded with cycle
-                            detection.
+                            A CSV import, previewed row by row before anything is written to the ledger.
                         </p>
                     }
                 />
 
                 <div className="recipes">
                     <div className="recipes__text">
-                        <h3>What one order consumes</h3>
-                        <p>Which materials and sub-products it takes, and how many per unit.</p>
+                        <h3>What one import does</h3>
+                        <p>Upload a sheet, map its columns, and review every row before it lands.</p>
                         <ul className="recipes__list">
                             <li>
-                                <span>Nested assemblies</span>
-                                <span>Ten levels</span>
+                                <span>Items and opening stock</span>
+                                <span>One sheet</span>
                             </li>
                             <li>
-                                <span>Material cost per unit</span>
-                                <span>Live</span>
+                                <span>Recipes per product</span>
+                                <span>Same file</span>
                             </li>
                             <li>
-                                <span>Reprocess old orders</span>
-                                <span>Safe</span>
+                                <span>Rows that fail a check</span>
+                                <span>Held back</span>
                             </li>
                         </ul>
                     </div>
 
                     <div className="tree">
                         <div className="tree__head">
-                            <p>Recipe: Signature Gift Set</p>
-                            <span className="tree__state">Amounts in BDT</span>
+                            <p>Import: stock-opening.csv</p>
+                            <span className="tree__state">4 of 4 rows ready</span>
                         </div>
                         <ul className="tree__rows">
-                            {RECIPE.map((r) => (
+                            {IMPORT_ROWS.map((r) => (
                                 <li key={r.id} className={r.sub ? 'tree__row tree__row--sub' : 'tree__row'}>
                                     <span className="tree__name">
                                         {r.name}
                                         <small>{r.note}</small>
                                     </span>
-                                    <span className="tree__qty">×{r.qty}</span>
+                                    <span className="tree__qty">{r.qty === 'new' ? 'new' : '×1'}</span>
                                     <span className="tree__cost">{r.cost}</span>
                                 </li>
                             ))}
                         </ul>
                         <div className="tree__total">
-                            <span>Material cost per unit</span>
-                            <strong>230.75</strong>
+                            <span>Rows written to the ledger</span>
+                            <strong>4</strong>
                         </div>
                     </div>
                 </div>
@@ -277,46 +279,231 @@ function Ledger() {
 
 /* -------------------------------------------------------------------- steps */
 
-const STEPS = [
+type FlowRow = { label: string; value: string; state: string; tone?: 'ok' | 'warn' | 'out' };
+
+type FlowStep = {
+    key: string;
+    title: string;
+    body: string;
+    stage: string;
+    state: string;
+    rows: FlowRow[];
+    foot: string;
+    progress?: number;
+};
+
+const FLOW: FlowStep[] = [
     {
-        title: 'Connect your store',
-        body: 'Install the bridge plugin, paste your API key and secret. Orders and products start syncing.',
+        key: 'signup',
+        title: 'Create a workspace',
+        body: 'An email, an organization name and a currency. No card, no call.',
+        stage: 'Workspace',
+        state: 'Ready',
+        rows: [
+            { label: 'Organization', value: 'acme-gifts', state: 'created', tone: 'ok' },
+            { label: 'Admin account', value: 'you@store.com', state: 'verified', tone: 'ok' },
+            { label: 'Currency', value: 'BDT', state: 'set', tone: 'ok' },
+        ],
+        foot: 'The workspace is the tenant boundary. Every row that follows belongs to it.',
     },
     {
-        title: 'Map your recipes',
-        body: 'Attach a recipe to each product: its materials, sub-products and how many per unit.',
+        key: 'store',
+        title: 'Add your store',
+        body: 'Paste the store URL, then copy the key and secret the portal issues.',
+        stage: 'Store connection',
+        state: 'Handshake',
+        rows: [
+            { label: 'Store URL', value: 'shop.example.com', state: 'reachable', tone: 'ok' },
+            { label: 'API key', value: 'sp_live_…4f2a', state: 'issued', tone: 'ok' },
+            { label: 'API secret', value: 'AES-256 at rest', state: 'stored', tone: 'ok' },
+        ],
+        foot: 'Each store gets its own key pair. All of them feed one ledger.',
     },
     {
-        title: 'Let it run',
-        body: 'Orders reserve and deduct stock. Forecasting flags what will run out and what to reorder.',
+        key: 'sync',
+        title: 'The plugin fetches your data',
+        body: 'Install the bridge, save the keys, and the catalog and orders start arriving.',
+        stage: 'Read-only sync',
+        state: 'Fetching',
+        rows: [
+            { label: 'Products', value: '128', state: 'fetched', tone: 'ok' },
+            { label: 'Orders', value: '1,940', state: 'fetched', tone: 'ok' },
+            { label: 'Line items', value: '4,318', state: 'fetched', tone: 'ok' },
+            { label: 'Customers', value: '612', state: 'fetched', tone: 'ok' },
+        ],
+        foot: 'Signed webhooks, one direction. Nothing is ever written back to the store.',
+    },
+    {
+        key: 'train',
+        title: 'The model starts immediately',
+        body: 'The first sync is enough. History is loaded and the time-series model begins.',
+        stage: 'Forecast model',
+        state: 'Training',
+        rows: [
+            { label: 'History', value: '18 months', state: 'loaded', tone: 'ok' },
+            { label: 'Features', value: 'burn, seasonality', state: 'built', tone: 'ok' },
+            { label: 'Model', value: 'time-series', state: 'training', tone: 'warn' },
+        ],
+        foot: 'Trained on your own movements only. No shared pool, no borrowed demand.',
+        progress: 72,
+    },
+    {
+        key: 'forecast',
+        title: 'Forecasts land',
+        body: 'Days of cover per item, what runs out first, and what to reorder.',
+        stage: 'Stockout runway',
+        state: 'Live',
+        rows: [
+            { label: 'Satin ribbon 20mm', value: '2 days', state: 'Critical', tone: 'out' },
+            { label: 'Kraft box medium', value: '5 days', state: 'Warning', tone: 'warn' },
+            { label: 'Tissue paper sheet', value: '21 days', state: 'Healthy', tone: 'ok' },
+        ],
+        foot: 'Stock on hand divided by the daily burn over the trailing window.',
     },
 ];
 
-function Steps() {
+function usePrefersReducedMotion(): boolean {
+    const [reduced, setReduced] = useState(false);
+
+    useEffect(() => {
+        const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+        setReduced(mq.matches);
+        const onChange = () => setReduced(mq.matches);
+        mq.addEventListener('change', onChange);
+        return () => mq.removeEventListener('change', onChange);
+    }, []);
+
+    return reduced;
+}
+
+const FLOW_INTERVAL = 3400;
+
+function Workflow() {
+    const [active, setActive] = useState(0);
+    const [playing, setPlaying] = useState(true);
+    const [inView, setInView] = useState(false);
+    const sectionRef = useRef<HTMLElement | null>(null);
+    const reduced = usePrefersReducedMotion();
+
+    useEffect(() => {
+        const el = sectionRef.current;
+        if (!el || typeof IntersectionObserver === 'undefined') {
+            setInView(true);
+            return;
+        }
+        const io = new IntersectionObserver(
+            ([entry]) => setInView(entry.isIntersecting),
+            { threshold: 0.35 },
+        );
+        io.observe(el);
+        return () => io.disconnect();
+    }, []);
+
+    useEffect(() => {
+        if (!playing || !inView || reduced) return;
+        const t = window.setTimeout(() => setActive((i) => (i + 1) % FLOW.length), FLOW_INTERVAL);
+        return () => window.clearTimeout(t);
+    }, [active, playing, inView, reduced]);
+
+    const step = FLOW[active];
+    const running = playing && inView && !reduced;
+
     return (
-        <section id="how" className="sec">
+        <section id="how" className="sec sec--flow" ref={sectionRef}>
             <div className="container">
                 <SectionHead
-                    title="Live inventory in an afternoon"
-                    line="No migration and no data entry marathon."
+                    title="From a store to a forecast"
+                    line="Five steps, one afternoon, no data entry marathon."
                     aside={
                         <p className="fine">
-                            Connect, map, and go. The first synced order is usually the same day.
+                            Sign up, connect, sync. The model starts on the first sync and the runway
+                            appears with it.
                         </p>
                     }
                 />
 
-                <ol className="steps">
-                    {STEPS.map((s, i) => (
-                        <li key={s.title} className="step">
-                            <span className="step__n" aria-hidden="true">
-                                {i + 1}
-                            </span>
-                            <h3>{s.title}</h3>
-                            <p>{s.body}</p>
-                        </li>
-                    ))}
-                </ol>
+                <div className="flow">
+                    <ol className="flow__rail">
+                        {FLOW.map((s, i) => {
+                            const isActive = i === active;
+                            return (
+                                <li key={s.key}>
+                                    <button
+                                        type="button"
+                                        className="flow__step"
+                                        aria-current={isActive ? 'step' : undefined}
+                                        onClick={() => {
+                                            setActive(i);
+                                            setPlaying(false);
+                                        }}
+                                    >
+                                        <span className="flow__n" aria-hidden="true">
+                                            {i + 1}
+                                        </span>
+                                        <span className="flow__label">
+                                            <span className="flow__title">{s.title}</span>
+                                            {isActive && <span className="flow__copy">{s.body}</span>}
+                                        </span>
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ol>
+
+                    <div className="flow__stage">
+                        <div className="flow__head">
+                            <p>{step.stage}</p>
+                            <span className="flow__state">{step.state}</span>
+                        </div>
+
+                        <div className="flow__body" key={step.key}>
+                            {step.rows.map((r, i) => (
+                                <div
+                                    className="flow__row"
+                                    key={r.label}
+                                    style={{ '--i': i } as CSSProperties}
+                                >
+                                    <span className="flow__row-label">{r.label}</span>
+                                    <span className="flow__row-value">{r.value}</span>
+                                    <span
+                                        className={cn(
+                                            'flow__row-state',
+                                            r.tone && `flow__row-state--${r.tone}`,
+                                        )}
+                                    >
+                                        {r.state}
+                                    </span>
+                                </div>
+                            ))}
+                            {step.progress !== undefined && (
+                                <div className="flow__meter" aria-hidden="true">
+                                    <span style={{ width: `${step.progress}%` }} />
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flow__foot">
+                            <span>{step.foot}</span>
+                            <button
+                                type="button"
+                                className="flow__play"
+                                onClick={() => setPlaying((p) => !p)}
+                                aria-label={playing ? 'Pause the walkthrough' : 'Play the walkthrough'}
+                            >
+                                {playing ? (
+                                    <Pause className="size-3.5" aria-hidden="true" />
+                                ) : (
+                                    <Play className="size-3.5" aria-hidden="true" />
+                                )}
+                                {playing ? 'Pause' : 'Play'}
+                            </button>
+                        </div>
+
+                        {running && (
+                            <div className="flow__timer" key={`timer-${active}`} aria-hidden="true" />
+                        )}
+                    </div>
+                </div>
 
                 <dl className="also">
                     <div>
@@ -515,9 +702,9 @@ export default function Landing() {
     return (
         <>
             <Hero />
-            <Recipes />
+            <Features />
             <Ledger />
-            <Steps />
+            <Workflow />
             <Bridge />
             <Faq />
             <Close />

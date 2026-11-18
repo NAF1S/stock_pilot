@@ -1,3 +1,4 @@
+
 # StockPilot — Agent Guide
 
 StockPilot is a two-part inventory & warehouse platform for businesses that assemble and sell
@@ -7,16 +8,17 @@ data to the portal over HMAC-signed webhooks.
 
 ## Repository map
 
-| Path | What it is |
-|---|---|
-| [portal/](portal/AGENTS.md) | Laravel API + React SPA. All inventory logic lives here. |
-| [stockpilot-for-woocommerce/](stockpilot-for-woocommerce/AGENTS.md) | WordPress plugin (read-only bridge). |
-| [scripts/](scripts/AGENTS.md) | Production bundle builders + Python ML / Supabase utilities. |
-| [scratch/](scratch/) | Throwaway Playwright/Node diagnostics against a live server. Not shipped, not tested. |
+| Path                                                               | What it is                                                                            |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| [portal/](portal/AGENTS.md)                                         | Laravel API + React SPA. All inventory logic lives here.                              |
+| [stockpilot-for-woocommerce/](stockpilot-for-woocommerce/AGENTS.md) | WordPress plugin (read-only bridge).                                                  |
+| [scripts/](scripts/AGENTS.md)                                       | Production bundle builders + Python ML / Supabase utilities.                          |
+| [scratch/](scratch/)                                                | Throwaway Playwright/Node diagnostics against a live server. Not shipped, not tested. |
 
 Deeper documentation — read before large changes:
 
 - [README.md](README.md) — architecture, inventory mechanics, env vars, CLI, troubleshooting.
+- [CONTEXT.md](CONTEXT.md) — condensed state-of-the-repo brief for onboarding an agent/LLM.
 - [DEPLOYMENT.md](DEPLOYMENT.md) — shared hosting vs VPS, cron, rollout, rollback.
 - [FORECASTING.md](FORECASTING.md) — ML forecasting schema, API, Python worker.
 

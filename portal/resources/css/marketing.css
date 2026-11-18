@@ -25,6 +25,14 @@
 /* Hallmark · reworded "Recipe — signature gift set" to "Recipe: Signature Gift Set" · 19, the dash */
 /* Hallmark · reworded "2days, 5days, 21days" to the board's 2/5/21 in a "Days left" column · 63/69, the unit is stated once in the head */
 /* Hallmark · pre-emit critique: P5 H4 E4 S5 R4 V4 · weakest: R, every seam climbed the same rule-and-band rung; the bordered tree became the one heavy object and two sections lost their bands */
+/* Hallmark · reworded "Inventory that knows what a kit is" to "Know what sells, what's left, and what's next" · 54: the head now states the three questions the product answers, not a definition of a kit */
+/* Hallmark · reworded "Track every component, recipe and order for kits built on WooCommerce" to "Sync your WooCommerce store and forecast demand from your own sales history" · 58: the lead names the two actions, sync and forecast */
+/* Hallmark · reworded the hero facts to Sync / Forecast / Runway / Customers · the four claims the page now makes, one per row */
+/* Hallmark · reworded "Every kit is a recipe" to "Bring your own data in" · the section is the import feature, so the head names the action */
+/* Hallmark · reworded the recipe tree to the import preview · same bordered object, same row rhythm; the rows are now a sheet being checked, not a BOM */
+/* Hallmark · reworded "Live inventory in an afternoon" to "From a store to a forecast" · 54: the head names the two ends of the walkthrough */
+/* Hallmark · reworded the three static steps to the five-step walkthrough · the steps became one interactive stage, so the section is a single object rather than three columns */
+/* Hallmark · reworded "Recipes" to "Features" in the bar · the section it points at is no longer the recipe tree */
 /*
  * StockPilot marketing shell — Wayfind.
  * Every colour and face here resolves to tokens.css; nothing is literal.
@@ -1296,43 +1304,255 @@ body {
     white-space: nowrap;
 }
 
-/* ------------------------------------------------------------------ steps */
+/* --------------------------------------------------------------- workflow */
 
-.steps {
+/*
+ * The walkthrough owns a full screen: clicking "How it works" in the bar lands
+ * on it with the whole flow in view. The negative scroll-margin cancels the
+ * global `scroll-padding-top: 5rem` (app.css) so the section starts at the very
+ * top of the viewport, and the top padding reserves the sticky bar's height so
+ * the heading never sits under it when the bar is showing.
+ */
+.sec--flow {
+    display: flex;
+    align-items: center;
+    min-height: 100dvh;
+    scroll-margin-top: -5rem;
+    padding-block: calc(var(--nav-bar) + var(--rule-bar) + clamp(1.5rem, 3vw, 2.5rem))
+        clamp(1.5rem, 3vw, 2.5rem);
+}
+
+.sec--flow > .container {
+    width: 100%;
+}
+
+.flow {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    column-gap: var(--space-2xl);
+    row-gap: var(--space-xl);
+    align-items: start;
+}
+
+.flow__rail {
     border-top: var(--rule-bar) solid var(--wf-ink);
 }
 
-.step {
-    padding: var(--space-lg) var(--space-lg) var(--space-lg) 0;
+.flow__rail li {
+    border-bottom: 1px solid var(--wf-rule);
+}
+
+.flow__step {
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    gap: var(--space-sm);
+    align-items: baseline;
+    width: 100%;
+    padding: var(--space-sm) 0;
+    border: 0;
+    background: transparent;
+    color: var(--wf-ink);
+    text-align: start;
+    cursor: pointer;
+}
+
+.flow__n {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--text-sm);
+    line-height: 1.2;
+    color: var(--wf-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.flow__step[aria-current='step'] .flow__n {
+    color: var(--wf-accent);
+}
+
+.flow__title {
+    display: block;
+    font-size: var(--text-md);
+    font-weight: 500;
+    line-height: 1.25;
+    color: var(--wf-ink-2);
+    transition: color var(--dur-micro) steps(1);
+}
+
+.flow__step:hover .flow__title,
+.flow__step[aria-current='step'] .flow__title {
+    color: var(--wf-ink);
+}
+
+.flow__copy {
+    display: block;
+    margin-top: var(--space-2xs);
+    max-width: 40ch;
+    font-size: var(--text-sm);
+    color: var(--wf-ink-2);
+}
+
+.flow__stage {
+    position: relative;
+    border: var(--rule-bar) solid var(--wf-ink);
+    background: var(--wf-paper-3);
+    overflow: hidden;
+}
+
+.flow__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: var(--rule-bar) solid var(--wf-ink);
+}
+
+.flow__head p {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    margin: 0;
+    max-width: none;
+}
+
+.flow__state {
+    font-size: var(--text-xs);
+    color: var(--wf-muted);
+    white-space: nowrap;
+}
+
+.flow__body {
+    padding: var(--space-2xs) var(--space-lg);
+}
+
+.flow__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 6.5rem;
+    gap: var(--space-md);
+    align-items: baseline;
+    padding-block: var(--space-sm);
+    border-bottom: 1px solid var(--wf-rule);
+    font-size: var(--text-sm);
+}
+
+.flow__body .flow__row:last-of-type {
+    border-bottom: 0;
+}
+
+.flow__row-label {
+    color: var(--wf-ink);
     min-width: 0;
 }
 
-.step + .step {
-    border-inline-start: 1px solid var(--wf-rule);
-    padding-inline-start: var(--space-lg);
-}
-
-.step__n {
-    display: inline-block;
-    font-family: var(--font-display);
-    font-weight: 800;
-    font-size: var(--text-3xl);
-    line-height: 1;
-    letter-spacing: -0.03em;
-    color: var(--wf-accent);
-    margin-bottom: var(--space-sm);
-}
-
-.step h3 {
-    margin-bottom: var(--space-xs);
-}
-
-.step p {
-    font-size: var(--text-sm);
+.flow__row-value {
     color: var(--wf-ink-2);
+    text-align: end;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.flow__row-state {
+    font-size: var(--text-xs);
+    color: var(--wf-muted);
+    text-align: end;
+    white-space: nowrap;
+}
+
+.flow__row-state--warn {
+    color: var(--wf-ink);
+}
+
+.flow__row-state--out {
+    color: var(--wf-accent);
+}
+
+.flow__meter {
+    height: var(--rule-bar);
+    margin-block: var(--space-sm) var(--space-md);
+    background: var(--wf-rule);
+}
+
+.flow__meter span {
+    display: block;
+    height: 100%;
+    background: var(--wf-accent);
+}
+
+.flow__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-lg);
+    border-top: 1px solid var(--wf-rule);
+    font-size: var(--text-xs);
+    color: var(--wf-muted);
+}
+
+.flow__foot > span {
+    max-width: 46ch;
+}
+
+.flow__play {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    min-height: 2rem;
+    padding-inline: var(--space-sm);
+    border: 1px solid var(--wf-ink);
+    background: transparent;
+    color: var(--wf-ink);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--dur-micro) steps(1), color var(--dur-micro) steps(1);
+}
+
+.flow__play:hover {
+    background: var(--wf-ink);
+    color: var(--wf-paper);
+}
+
+.flow__timer {
+    height: var(--rule-bar);
+    background: var(--wf-accent);
+    transform-origin: left center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .flow__row {
+        animation: flow-row-in var(--dur-long) var(--ease-out) both;
+        animation-delay: calc(var(--i, 0) * 70ms);
+    }
+
+    .flow__timer {
+        animation: flow-timer 3400ms linear both;
+    }
+}
+
+@keyframes flow-row-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes flow-timer {
+    from {
+        transform: scaleX(0);
+    }
+    to {
+        transform: scaleX(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .flow__timer {
+        display: none;
+    }
 }
 
 /* the capabilities the three steps do not name */
@@ -1569,6 +1789,10 @@ body {
         row-gap: var(--space-lg);
     }
 
+    .flow {
+        column-gap: var(--space-xl);
+    }
+
     .close__actions {
         justify-content: flex-start;
     }
@@ -1583,22 +1807,51 @@ body {
 }
 
 @media (max-width: 48rem) {
-    .steps {
+    /*
+     * The rail stacks above the stage here, so the section is taller than one
+     * screen. It keeps the bar's height as top padding so the heading still
+     * clears the sticky bar when the hash lands on it.
+     */
+    .sec--flow {
+        min-height: 0;
+        padding-block: calc(var(--nav-bar) + var(--rule-bar) + var(--space-md)) var(--space-xl);
+    }
+
+    .flow {
         grid-template-columns: minmax(0, 1fr);
+        row-gap: var(--space-lg);
     }
 
-    .step {
-        padding: var(--space-md) 0;
+    .flow__step {
+        grid-template-columns: 2rem minmax(0, 1fr);
+        padding-block: var(--space-xs);
     }
 
-    .step + .step {
-        border-inline-start: 0;
-        border-top: 1px solid var(--wf-rule);
-        padding-inline-start: 0;
+    .flow__copy {
+        display: none;
     }
 
-    .step__n {
-        font-size: var(--text-2xl);
+    .flow__row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--space-2xs) var(--space-md);
+    }
+
+    .flow__row-label {
+        grid-column: 1;
+    }
+
+    .flow__row-value {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .flow__row-state {
+        grid-column: 1 / -1;
+        text-align: start;
+    }
+
+    .flow__foot {
+        flex-wrap: wrap;
     }
 
     .plans {

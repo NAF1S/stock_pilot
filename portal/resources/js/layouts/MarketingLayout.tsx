@@ -5,7 +5,7 @@ import { useTheme } from '../lib/theme';
 import { cn } from '../lib/cn';
 
 const LINKS = [
-    { to: '/#features', label: 'Recipes' },
+    { to: '/#features', label: 'Features' },
     { to: '/#how', label: 'How it works' },
     { to: '/#faq', label: 'FAQ' },
 ];

@@ -30,56 +30,59 @@ This document details the architecture, database schema, API layer, frontend int
 Migration: `portal/database/migrations/2026_10_10_000001_create_ml_forecasting_tables.php`
 
 ### 2.1 `sp_demand_forecasts`
+
 Stores time-series projected consumption volume per entity for forward days/weeks.
 
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `bigint` (PK) | Auto-increment primary key |
-| `organization_id` | `bigint` (FK) | Multi-tenant isolation |
-| `entity_type` | `varchar(32)` | `'item'` (raw material) or `'product'` (finished good) |
-| `entity_id` | `bigint` | ID of the item or product |
-| `forecast_date` | `date` | Target date of prediction |
-| `predicted_quantity` | `numeric(14,4)` | Point forecast ($\hat{y}$) |
-| `lower_bound` | `numeric(14,4)` | 95% Bayesian confidence lower bound |
-| `upper_bound` | `numeric(14,4)` | 95% Bayesian confidence upper bound |
-| `model_version` | `varchar(64)` | Tracking tag (e.g. `meta-prophet-v1`, `baseline-v1`) |
-| `created_at`, `updated_at` | `timestamp` | Audit timestamps |
+| Column                         | Type              | Description                                                |
+| :----------------------------- | :---------------- | :--------------------------------------------------------- |
+| `id`                         | `bigint` (PK)   | Auto-increment primary key                                 |
+| `organization_id`            | `bigint` (FK)   | Multi-tenant isolation                                     |
+| `entity_type`                | `varchar(32)`   | `'item'` (raw material) or `'product'` (finished good) |
+| `entity_id`                  | `bigint`        | ID of the item or product                                  |
+| `forecast_date`              | `date`          | Target date of prediction                                  |
+| `predicted_quantity`         | `numeric(14,4)` | Point forecast ($\hat{y}$)                               |
+| `lower_bound`                | `numeric(14,4)` | 95% Bayesian confidence lower bound                        |
+| `upper_bound`                | `numeric(14,4)` | 95% Bayesian confidence upper bound                        |
+| `model_version`              | `varchar(64)`   | Tracking tag (e.g.`meta-prophet-v1`, `baseline-v1`)    |
+| `created_at`, `updated_at` | `timestamp`     | Audit timestamps                                           |
 
 *Index:* `['organization_id', 'entity_type', 'entity_id', 'forecast_date']`
 
 ### 2.2 `sp_stockout_risks`
+
 Stores current inventory runway, daily burn rates, and risk classification.
 
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `bigint` (PK) | Primary key |
-| `organization_id` | `bigint` (FK) | Tenant identifier |
-| `entity_type` | `varchar(32)` | `'item'` or `'product'` |
-| `entity_id` | `bigint` | Entity ID |
-| `current_stock` | `numeric(14,4)` | On-hand quantity |
-| `daily_burn_rate` | `numeric(14,4)` | Estimated consumption units per day |
-| `days_until_stockout` | `numeric(10,2)` | Runway remaining (`current_stock / daily_burn_rate`) |
-| `risk_level` | `varchar(32)` | `'critical'` (&le;3d), `'warning'` (3–7d), `'healthy'` (&gt;7d) |
-| `estimated_stockout_date`| `date` | Projected date stock reaches zero |
-| `model_version` | `varchar(64)` | Model version identifier |
-| `calculated_at` | `timestamp` | Time of model inference |
+| Column                      | Type              | Description                                                            |
+| :-------------------------- | :---------------- | :--------------------------------------------------------------------- |
+| `id`                      | `bigint` (PK)   | Primary key                                                            |
+| `organization_id`         | `bigint` (FK)   | Tenant identifier                                                      |
+| `entity_type`             | `varchar(32)`   | `'item'` or `'product'`                                            |
+| `entity_id`               | `bigint`        | Entity ID                                                              |
+| `current_stock`           | `numeric(14,4)` | On-hand quantity                                                       |
+| `daily_burn_rate`         | `numeric(14,4)` | Estimated consumption units per day                                    |
+| `days_until_stockout`     | `numeric(10,2)` | Runway remaining (`current_stock / daily_burn_rate`)                 |
+| `risk_level`              | `varchar(32)`   | `'critical'` (&le;3d), `'warning'` (3–7d), `'healthy'` (&gt;7d) |
+| `estimated_stockout_date` | `date`          | Projected date stock reaches zero                                      |
+| `model_version`           | `varchar(64)`   | Model version identifier                                               |
+| `calculated_at`           | `timestamp`     | Time of model inference                                                |
 
 *Index:* `['organization_id', 'risk_level']`, `['organization_id', 'entity_type', 'entity_id']`
 
 ### 2.3 `sp_restock_recommendations`
+
 Stores prescriptive replenishment purchase actions generated by the AI engine.
 
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `bigint` (PK) | Primary key |
-| `organization_id` | `bigint` (FK) | Tenant identifier |
-| `entity_type` | `varchar(32)` | `'item'` or `'product'` |
-| `entity_id` | `bigint` | Entity ID |
-| `recommended_reorder_qty`| `numeric(14,4)` | Suggested batch order size (30-day safety stock) |
-| `urgency` | `varchar(32)` | `'high'` (critical stockout), `'medium'`, `'low'` |
-| `reasoning` | `text` | AI rationale explaining the recommendation |
-| `status` | `varchar(32)` | `'pending'`, `'accepted'`, `'dismissed'` |
-| `model_version` | `varchar(64)` | Model version |
+| Column                      | Type              | Description                                             |
+| :-------------------------- | :---------------- | :------------------------------------------------------ |
+| `id`                      | `bigint` (PK)   | Primary key                                             |
+| `organization_id`         | `bigint` (FK)   | Tenant identifier                                       |
+| `entity_type`             | `varchar(32)`   | `'item'` or `'product'`                             |
+| `entity_id`               | `bigint`        | Entity ID                                               |
+| `recommended_reorder_qty` | `numeric(14,4)` | Suggested batch order size (30-day safety stock)        |
+| `urgency`                 | `varchar(32)`   | `'high'` (critical stockout), `'medium'`, `'low'` |
+| `reasoning`               | `text`          | AI rationale explaining the recommendation              |
+| `status`                  | `varchar(32)`   | `'pending'`, `'accepted'`, `'dismissed'`          |
+| `model_version`           | `varchar(64)`   | Model version                                           |
 
 *Index:* `['organization_id', 'status', 'urgency']`
 
@@ -88,24 +91,29 @@ Stores prescriptive replenishment purchase actions generated by the AI engine.
 ## 3. Backend & API Layer (Laravel 13)
 
 ### 3.1 Eloquent Models
+
 All models enforce multi-tenant scoping via `BelongsToOrganization`:
+
 * `App\Models\DemandForecast` (`portal/app/Models/DemandForecast.php`)
 * `App\Models\StockoutRisk` (`portal/app/Models/StockoutRisk.php`)
 * `App\Models\RestockRecommendation` (`portal/app/Models/RestockRecommendation.php`)
 
 ### 3.2 REST API Endpoints
+
 Controller: `App\Http\Controllers\Api\ForecastController` (`portal/app/Http/Controllers/Api/ForecastController.php`)
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/forecasts/summary` | Dashboard metrics: critical count, warning count, healthy count, top risks |
-| `GET` | `/api/forecasts/risks` | Filterable list of stockout runway calculations (`risk_level`, `entity_type`) |
-| `GET` | `/api/forecasts/recommendations` | Active restock suggestions (`status=pending`) |
-| `POST` | `/api/forecasts/recommendations/{id}/action` | Update recommendation state (`status: 'accepted' \| 'dismissed'`) |
-| `GET` | `/api/forecasts/demand` | Forward time-series predictions (`entity_type`, `entity_id`) |
+| Method   | Endpoint                                       | Description                                                                       |
+| :------- | :--------------------------------------------- | :-------------------------------------------------------------------------------- |
+| `GET`  | `/api/forecasts/summary`                     | Dashboard metrics: critical count, warning count, healthy count, top risks        |
+| `GET`  | `/api/forecasts/risks`                       | Filterable list of stockout runway calculations (`risk_level`, `entity_type`) |
+| `GET`  | `/api/forecasts/recommendations`             | Active restock suggestions (`status=pending`)                                   |
+| `POST` | `/api/forecasts/recommendations/{id}/action` | Update recommendation state (`status: 'accepted' \| 'dismissed'`)                |
+| `GET`  | `/api/forecasts/demand`                      | Forward time-series predictions (`entity_type`, `entity_id`)                  |
 
 ### 3.3 Built-in Artisan Command (Fallback & Local Execution)
+
 Command: `php artisan ml:forecast {--org=}` (`portal/app/Console/Commands/GenerateForecasts.php`)
+
 * Extracts trailing 30-day movement deltas (`sp_item_movements` where `qty_delta < 0`).
 * Computes baseline velocity burn rates and stockout dates.
 * Generates 14-day daily forward predictions into Supabase PostgreSQL.
@@ -116,13 +124,16 @@ Command: `php artisan ml:forecast {--org=}` (`portal/app/Console/Commands/Genera
 ## 4. Portal UI Integration (React 19 SPA)
 
 ### 4.1 Dedicated Page: `/forecasts`
+
 File: `portal/resources/js/pages/Forecasts.tsx`
+
 * **Real-time Stat Cards**: Displays Critical Stockout Risks, Warnings, Healthy Runways, and Urgent Restock Actions.
 * **Depletion Runway Table**: Lists all entities, current stock, daily burn rate, remaining days, estimated stockout date, and color-coded risk badge.
 * **Prescriptive Restock Action Cards**: Single-click "Approve Purchase" or "Dismiss" for AI recommendations with live cache invalidation.
 * **Pipeline Architecture Tab**: Shows live database connection status and model metadata.
 
 ### 4.2 Navigation & Routing
+
 * **Sidebar**: Added `AI Forecasting` (🔮) link to `Layout.tsx`.
 * **Router**: Added `/forecasts` protected route in `app.tsx`.
 * **Bundle**: Asset build optimized and pre-compiled via Vite.
@@ -134,6 +145,7 @@ File: `portal/resources/js/pages/Forecasts.tsx`
 Script: `scripts/ml_forecasting_worker.py`
 
 ### 5.1 Supported Models
+
 1. **Meta Prophet (`--engine prophet`)**:
    * Extracts historical daily consumption: `date_trunc('day', created_at)` as `ds` and daily quantity consumed as `y`.
    * Fits additive regression model with **weekly seasonality** (modeling WooCommerce weekday vs. weekend spikes).
