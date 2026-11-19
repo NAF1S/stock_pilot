@@ -116,8 +116,8 @@ function Hero() {
                                 <dd>Days left, per item</dd>
                             </div>
                             <div>
-                                <dt>Customers</dt>
-                                <dd>Who buys what, and when</dd>
+                                <dt>Recipes</dt>
+                                <dd>Nested up to ten levels</dd>
                             </div>
                         </dl>
                     </div>
@@ -146,17 +146,18 @@ function Features() {
             <div className="container">
                 <SectionHead
                     title="Bring your own data in"
-                    line="Import items, opening stock and recipes from a spreadsheet, then keep them in sync."
+                    line="Today items, opening stock and recipes arrive from WooCommerce. A spreadsheet import is in development."
                     aside={
                         <p className="fine">
-                            A CSV import, previewed row by row before anything is written to the ledger.
+                            Preview of the planned importer: a sheet is checked row by row before
+                            anything reaches the ledger.
                         </p>
                     }
                 />
 
                 <div className="recipes">
                     <div className="recipes__text">
-                        <h3>What one import does</h3>
+                        <h3>What one import will do</h3>
                         <p>Upload a sheet, map its columns, and review every row before it lands.</p>
                         <ul className="recipes__list">
                             <li>
@@ -177,7 +178,7 @@ function Features() {
                     <div className="tree">
                         <div className="tree__head">
                             <p>Import: stock-opening.csv</p>
-                            <span className="tree__state">4 of 4 rows ready</span>
+                            <span className="tree__state">Preview · not yet available</span>
                         </div>
                         <ul className="tree__rows">
                             {IMPORT_ROWS.map((r) => (
@@ -192,7 +193,7 @@ function Features() {
                             ))}
                         </ul>
                         <div className="tree__total">
-                            <span>Rows written to the ledger</span>
+                            <span>Rows that would be written</span>
                             <strong>4</strong>
                         </div>
                     </div>
@@ -335,17 +336,16 @@ const FLOW: FlowStep[] = [
     },
     {
         key: 'train',
-        title: 'The model starts immediately',
-        body: 'The first sync is enough. History is loaded and the time-series model begins.',
+        title: 'Run a forecast when you are ready',
+        body: 'Trigger a recompute from the Forecasting page or from cron. The built-in baseline needs no Python; a seasonal model needs a training worker.',
         stage: 'Forecast model',
-        state: 'Training',
+        state: 'On demand',
         rows: [
-            { label: 'History', value: '18 months', state: 'loaded', tone: 'ok' },
-            { label: 'Features', value: 'burn, seasonality', state: 'built', tone: 'ok' },
-            { label: 'Model', value: 'time-series', state: 'training', tone: 'warn' },
+            { label: 'History', value: 'your movements', state: 'read', tone: 'ok' },
+            { label: 'Baseline', value: 'burn and runway', state: 'built in', tone: 'ok' },
+            { label: 'Seasonal model', value: 'optional', state: 'worker', tone: 'warn' },
         ],
-        foot: 'Trained on your own movements only. No shared pool, no borrowed demand.',
-        progress: 72,
+        foot: 'Computed from your own movements only. No shared pool, no borrowed demand.',
     },
     {
         key: 'forecast',
@@ -413,11 +413,11 @@ function Workflow() {
             <div className="container">
                 <SectionHead
                     title="From a store to a forecast"
-                    line="Five steps, one afternoon, no data entry marathon."
+                    line="Five steps, one afternoon. Your catalogue arrives from the store, not by hand."
                     aside={
                         <p className="fine">
-                            Sign up, connect, sync. The model starts on the first sync and the runway
-                            appears with it.
+                            Sign up, connect, sync. Then run a forecast when you want one, and the
+                            runway appears with it.
                         </p>
                     }
                 />
